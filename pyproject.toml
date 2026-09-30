@@ -9,6 +9,10 @@ description = "AI accounting employee for Odoo 19 with an auditable approval gat
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+# Legacy .xls (OLE2) statements only. Pinned; pure-python, no formula/macro execution.
+xls = ["xlrd==2.0.1"]
+
 [project.scripts]
 odoo-accountant = "odoo_accountant.cli:main"
 

@@ -21,6 +21,16 @@ _SYN_N = {k: {norm_header(x) for x in v} for k, v in _SYN.items()}
 _DATE_CANDIDATES = ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y", "%d.%m.%Y", "%Y/%m/%d", "%d/%m/%y", "%d-%b-%Y"]
 
 
+_AR = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬", "01234567890123456789.,")
+
+
+def _clean_sample(v: str) -> str:
+    """Strip sign/parentheses/currency/DR-CR decorations so separator inference sees only digits and separators."""
+    t = str(v).translate(_AR).replace("\u00a0", "").replace(" ", "")
+    t = re.sub(r"(?i)(CR|DR)$|^[A-Z]{3}|[A-Z]{3}$", "", t)
+    return t.strip("()+-")
+
+
 def _row_score(row):
     return sum(1 for c in row if any(norm_header(c) in s for s in _SYN_N.values()))
 
@@ -32,8 +42,13 @@ def detect(table, max_scan=30) -> dict:
     amb: list = []
     if best[1] < 2:
         return {"complete": False, "header_row": None, "suggested_profile": None, "ambiguities": ["تعذّر اكتشاف صف العناوين؛ حدّد profile صراحةً."], "confidence": "none"}
-    hr = best[0] + 1
-    headers = rows[best[0]]
+    bi = best[0]
+    stacked = 0
+    while bi + 1 < len(rows) and _row_score(rows[bi + 1]) >= max(2, best[1] - 1):   # e.g. Arabic titles row then English titles row
+        bi += 1
+        stacked += 1
+    hr = bi + 1
+    headers = rows[bi]
     hn = [norm_header(h) for h in headers]
     cols: dict = {}
 
@@ -90,7 +105,7 @@ def detect(table, max_scan=30) -> dict:
             else:
                 amb.append("تنسيق التاريخ غير معروف: حدّد date_format.")
     numeric_titles = [cols[k] for k in ("amount", "debit", "credit", "balance") if k in cols]
-    samples = [str(v) for t in numeric_titles for v in col_values(t) if isinstance(v, str)]
+    samples = [_clean_sample(v) for t in numeric_titles for v in col_values(t) if isinstance(v, str)]
     if samples:
         dot = any(re.search(r"\d\.\d{1,2}$", s) for s in samples)
         com = any(re.search(r"\d,\d{1,2}$", s) for s in samples)
@@ -112,6 +127,35 @@ def detect(table, max_scan=30) -> dict:
     if table.meta.get("encoding"):
         profile["encoding"] = table.meta["encoding"]
     complete = not amb and all(k in cols for k in ("date", "payment_ref")) and ("amount" in cols or "debit" in cols)
-    return {"complete": complete, "header_row": hr, "suggested_profile": profile, "ambiguities": amb,
+    return {"complete": complete, "header_row": hr, "stacked_header_rows": stacked, "suggested_profile": profile, "ambiguities": amb,
             "confidence": "high" if complete else "low",
             "note": "اقتراح فقط؛ يجب اعتماده كـ profile صريح قبل أي proposal."}
+
+
+_CCY_LABELS = {norm_header(x) for x in ("currency", "ccy", "العملة", "عملة الحساب")}
+
+
+def detect_currency(table, max_scan: int = 15):
+    """Currency code from a preamble ('Currency' label with a 3-letter code beside/below it). None if absent or conflicting."""
+    found = set()
+    rows = table.rows[:max_scan]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if norm_header(cell) in _CCY_LABELS:
+                cands = [row[c + 1] if c + 1 < len(row) else None, rows[r + 1][c] if r + 1 < len(rows) and c < len(rows[r + 1]) else None]
+                found.update(str(x).strip() for x in cands if isinstance(x, str) and re.match(r"^[A-Z]{3}$", x.strip()))
+    return found.pop() if len(found) == 1 else None
+
+
+def detect_account_hint(table, max_scan: int = 15):
+    """Masked account-number hint from a preamble ('Account Number' / 'رقم الحساب' label) for the user to eyeball."""
+    labels = {norm_header(x) for x in ("account number", "account no", "رقم الحساب", "iban")}
+    rows = table.rows[:max_scan]
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if norm_header(cell) in labels:
+                for cand in ([rows[r + 1][c]] if r + 1 < len(rows) and c < len(rows[r + 1]) else []) + ([row[c + 1]] if c + 1 < len(row) else []):
+                    if isinstance(cand, (str, int)) and re.match(r"^[A-Za-z0-9 ]{6,40}$", str(cand).strip()) and any(ch.isdigit() for ch in str(cand)):
+                        v = str(cand).replace(" ", "")
+                        return "****" + v[-4:]
+    return None

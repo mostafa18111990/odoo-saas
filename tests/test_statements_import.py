@@ -53,7 +53,7 @@ class PreviewTests(Base):
         self.assertEqual(r["import_plan"]["total_amount"], 2749.5)
         self.assertEqual(r["target"]["bank_account"], "****7519")
         self.assertEqual(r["file"]["format"], "csv"); self.assertEqual(len(r["file"]["sha256"]), 64)
-        self.assertEqual(r["formats"]["supported"], ["csv", "xlsx"])
+        self.assertEqual(r["formats"]["supported"], ["csv", "xlsx", "xls"])
         self.assertIn("ofx", r["formats"]["planned_not_supported"])
         self.assertNotIn("SA0380000000608010167519", json.dumps(r, ensure_ascii=False))
 
@@ -293,7 +293,7 @@ class ImportFlowTests(Base):
 
 class McpStatementTests(Base):
     def test_tools_registered_and_strict(self):
-        self.assertEqual(len(TOOLS), 13)
+        self.assertEqual(len(TOOLS), 14)
         self.assertIn("statement_import_preview", TOOLS); self.assertIn("propose_statement_import", TOOLS)
         for n in ("statement_import_preview", "propose_statement_import"):
             self.assertFalse(TOOLS[n][1]["additionalProperties"])

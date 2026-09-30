@@ -5,7 +5,7 @@
 ## ما يستطيعه
 | النوع | العمليات |
 |---|---|
-| قراءة (فورية) | `accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `statement_import_preview` |
+| قراءة (فورية) | `accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `normalize_statement_file`, `statement_import_preview` |
 | كتابة (بموافقة) | `create_draft_customer_invoice`, `create_draft_vendor_bill`, `update_draft_move`, `post_move`, `register_payment`, `reconcile_statement_line`, `create_credit_note`, `cancel_or_reverse_move`, `create_followup_activity`, `send_followup_message`, `set_period_lock`, `import_bank_statement_lines` (عبر `propose_statement_import`) |
 | مرفوض | الحذف (`unlink`) وأي دالة Odoo غير مدرجة. لا توجد أداة «استدعاء أي دالة». |
 
@@ -37,13 +37,14 @@
 ```
 
 ## استيراد كشف الحساب البنكي
-- **أدوات MCP (13 إجمالًا):** `statement_import_preview` (قراءة فقط) و`propose_statement_import` (proposal محلي فقط). لا توجد أداة تنفذ الاستيراد مباشرة؛ التنفيذ عبر `approve_action` ثم `execute_approved_action` بكود وبصمة الحمولة.
-- **الصيغ المدعومة فعليًا:** CSV وXLSX. **OFX وQFX وCAMT.053:** مخطَّطة وتُرفض برسالة واضحة (لا ادعاء دعم غير مختبر). مدخل بديل: `rows` جاهزة (مناسب لملفات Telegram لاحقًا). الحدود: 5MB و5000 صف، ورسائل خطأ عربية.
+- **أدوات MCP (14 إجمالًا):** `normalize_statement_file` (تحويل محلي إلى XLSX قياسي، بلا Odoo وبلا تعديل للمصدر)، `statement_import_preview` (قراءة فقط) و`propose_statement_import` (proposal محلي فقط). لا توجد أداة تنفذ الاستيراد مباشرة؛ التنفيذ عبر `approve_action` ثم `execute_approved_action` بكود وبصمة الحمولة.
+- **الصيغ المدعومة فعليًا:** CSV وXLSX وXLS القديم (عبر الاعتماد الاختياري المثبَّت `xlrd==2.0.1`: `pip install "xlrd==2.0.1"` أو `pip install -e ".[xls]"`؛ بدونه يُرفض XLS برسالة واضحة). **OFX وQFX وCAMT.053:** مخطَّطة وتُرفض برسالة واضحة (لا ادعاء دعم غير مختبر). مدخل بديل: `rows` جاهزة (مناسب لملفات Telegram لاحقًا). الحدود: 5MB و5000 صف، ورسائل خطأ عربية.
 - **المعاينة:** اكتشاف الأعمدة (اقتراح فقط)، تنسيق التاريخ والأرقام (بما فيها الأرقام العربية)، العملة، الأرصدة الافتتاحية/الختامية وتسلسل عمود الرصيد، وبصمة الملف SHA-256 وبصمة كل حركة، ومقارنة exact/possible مع Odoo.
 - **الهدف صريح دائمًا:** `company_id` و`journal_id` و`bank_account_id` و`currency`؛ أي تعارض ⇒ رفض.
 - **الـ mapping profile:** JSON لكل بنك في `statement_profiles/` (`python -m odoo_accountant.cli profile-save --file p.json`).
 - **الأثر:** الاستيراد `create` فقط على `account.bank.statement.line` (قيد كشف بنكي مرحّل لكل سطر)، بلا تسوية ولا حذف ولا تعديل. التسوية مرحلة منفصلة بموافقة أخرى.
-- **CLI:** `statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
+- **التطبيع:** ورقة `Bank Transactions` بأعمدة Date وPayment Reference وAmount، تواريخ حقيقية، الوارد موجب، وصف مضغوط كامل، نصوص خاملة بلا معادلات، اسم آمن `outputs/statements/normalized_*.xlsx`، وتقرير (عدد، مجموع، تسلسل الرصيد، checksums للمصدر والناتج). `source_path` محصور بمجلدات مسموحة (`inputs/` وuploads وODOO_ACCOUNTANT_INPUT_DIRS). يتوقف عند الغموض ولا ينتج ملفًا عند أي صف مرفوض أو رصيد غير متسق.
+- **CLI:** `statement-normalize` و`statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
 - مرجع مفصل: `.claude/skills/odoo-accountant/references/statement-import.md`.
 
 ## الإعداد

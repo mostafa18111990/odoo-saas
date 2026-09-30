@@ -16,24 +16,54 @@ from ..errors import StatementError
 from .limits import MAX_ROWS, MAX_XLSX_UNCOMPRESSED
 from .records import RawTable
 
-SUPPORTED = ("csv", "xlsx")
+SUPPORTED = ("csv", "xlsx", "xls")
 PLANNED = {"ofx": "OFX", "qfx": "QFX", "camt053": "CAMT.053"}
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+XLS_REQUIREMENT = "xlrd==2.0.1"
+
+
+def xls_available() -> bool:
+    try:
+        import xlrd  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def supported_formats() -> list:
+    """Formats that can really be read right now (xls needs the pinned optional xlrd)."""
+    return ["csv", "xlsx"] + (["xls"] if xls_available() else [])
+
+
+def _is_encrypted_ole(data: bytes) -> bool:
+    return data[:8] == OLE_MAGIC and (b"E\x00n\x00c\x00r\x00y\x00p\x00t\x00e\x00d\x00P\x00a\x00c\x00k\x00a\x00g\x00e\x00" in data
+                                      or b"E\x00n\x00c\x00r\x00y\x00p\x00t\x00i\x00o\x00n\x00I\x00n\x00f\x00o\x00" in data)
+
+
+def _has_vba_ole(data: bytes) -> bool:
+    return data[:8] == OLE_MAGIC and (b"_\x00V\x00B\x00A\x00_\x00P\x00R\x00O\x00J\x00E\x00C\x00T\x00" in data)
 
 
 def detect_format(filename: str | None, data: bytes, hint: str | None) -> str:
+    if _is_encrypted_ole(data):
+        raise StatementError("encrypted", "الملف مشفَّر أو محميّ بكلمة مرور؛ لا يمكن قراءته. أزل التشفير ثم أعد المحاولة.")
     h = (hint or "").lower().strip().lstrip(".")
+    if h == "xlsm" or (filename or "").lower().endswith((".xlsm", ".xlsb", ".xltm")):
+        raise StatementError("macros", "ملفات Excel ذات الماكرو (xlsm/xlsb) مرفوضة. احفظ الكشف كـ XLSX أو CSV بلا ماكرو.")
     if h in ("camt.053", "camt_053", "camt"):
         h = "camt053"
     if h:
         if h in SUPPORTED or h in PLANNED:
             return h
-        raise StatementError("format_unknown", f"الصيغة «{hint}» غير معروفة. المدعوم فعليًا: CSV وXLSX.")
+        raise StatementError("format_unknown", f"الصيغة «{hint}» غير معروفة. المدعوم فعليًا: CSV وXLSX وXLS.")
     name = (filename or "").lower()
-    for ext in ("xlsx", "csv", "ofx", "qfx"):
+    for ext in ("xlsx", "xls", "csv", "ofx", "qfx"):
         if name.endswith("." + ext):
             return ext
     if data[:2] == b"PK":
         return "xlsx"
+    if data[:8] == OLE_MAGIC:
+        return "xls"
     head = data[:2048].lstrip().lower()
     if head.startswith(b"ofxheader") or b"<ofx>" in head:
         return "ofx"
@@ -44,11 +74,13 @@ def detect_format(filename: str | None, data: bytes, hint: str | None) -> str:
 
 def read_table(data: bytes, fmt: str, profile) -> RawTable:
     if fmt in PLANNED:
-        raise StatementError("format_planned", f"صيغة {PLANNED[fmt]} مخطَّط لها لكنها غير مدعومة بعد. المدعوم فعليًا: CSV وXLSX.")
+        raise StatementError("format_planned", f"صيغة {PLANNED[fmt]} مخطَّط لها لكنها غير مدعومة بعد. المدعوم فعليًا: CSV وXLSX وXLS.")
     if fmt == "csv":
         return read_csv(data, profile)
     if fmt == "xlsx":
         return read_xlsx(data, profile)
+    if fmt == "xls":
+        return read_xls(data, profile)
     raise StatementError("format_unknown", f"صيغة غير مدعومة: {fmt}")
 
 
@@ -137,6 +169,10 @@ def read_xlsx(data: bytes, profile) -> RawTable:
     if sum(i.file_size for i in zf.infolist()) > MAX_XLSX_UNCOMPRESSED:
         raise StatementError("xlsx_too_big", "حجم محتوى XLSX بعد فك الضغط يتجاوز الحد المسموح.")
     names = set(zf.namelist())
+    if any(n.lower().endswith("vbaproject.bin") for n in names):
+        raise StatementError("macros", "الملف يحتوي وحدات ماكرو (vbaProject) ومرفوض لأسباب أمنية. احفظه بلا ماكرو.")
+    if any(n.startswith("xl/encrypted") or n == "EncryptedPackage" for n in names):
+        raise StatementError("encrypted", "الملف مشفَّر؛ لا يمكن قراءته.")
     if "xl/workbook.xml" not in names:
         raise StatementError("xlsx_corrupt", "ملف XLSX لا يحتوي مصنفًا (workbook).")
     wb = _xml(zf.read("xl/workbook.xml"))
@@ -193,6 +229,7 @@ def read_xlsx(data: bytes, profile) -> RawTable:
                     date_xf.add(i)
 
     sheet = _xml(zf.read(path))
+    formula_cells = sum(1 for _ in sheet.iter(_NS + "f"))
     base = _dt.date(1904, 1, 1) if date1904 else _dt.date(1899, 12, 30)
     out: dict = {}
     for row in sheet.iter(_NS + "row"):
@@ -225,4 +262,71 @@ def read_xlsx(data: bytes, profile) -> RawTable:
             raise StatementError("too_many_rows", f"عدد الصفوف يتجاوز الحد المسموح ({MAX_ROWS}).")
     last = max(out) if out else 0
     rows = [out.get(i, []) for i in range(1, last + 1)]
-    return RawTable(rows, {"format": "xlsx", "sheet": name})
+    return RawTable(rows, {"format": "xlsx", "sheet": name, "formula_cells": formula_cells})
+
+
+def _pick_sheet(names: list, want):
+    """names: visible sheet names in order -> index. Ambiguity is an error, never a guess."""
+    if want is None:
+        if len(names) > 1:
+            raise StatementError("xlsx_sheet_ambiguous", "المصنف يحتوي أكثر من ورقة: حدّد sheet (اسمًا أو رقمًا). الأوراق: " + "، ".join(names))
+        return 0
+    if isinstance(want, int) or (isinstance(want, str) and want.isdigit()):
+        i = int(want) - 1
+        if 0 <= i < len(names):
+            return i
+    elif want in names:
+        return names.index(want)
+    raise StatementError("xlsx_sheet_missing", f"الورقة «{want}» غير موجودة. المتاح: " + "، ".join(names))
+
+
+def read_xls(data: bytes, profile) -> RawTable:
+    """Legacy BIFF (.xls, OLE2) via the pinned optional `xlrd`. Formulas are never evaluated (cached values only)."""
+    try:
+        import xlrd
+    except ImportError:
+        raise StatementError("xls_unavailable", f"قراءة XLS تتطلب الحزمة {XLS_REQUIREMENT} (ثبّتها: pip install \"{XLS_REQUIREMENT}\"). أو احفظ الكشف كـ XLSX/CSV.") from None
+    if data[:8] != OLE_MAGIC:
+        raise StatementError("xls_corrupt", "الملف ليس بصيغة XLS صالحة (OLE2).")
+    if _is_encrypted_ole(data):
+        raise StatementError("encrypted", "الملف مشفَّر أو محميّ بكلمة مرور؛ لا يمكن قراءته.")
+    if _has_vba_ole(data):
+        raise StatementError("macros", "الملف يحتوي وحدات ماكرو (VBA) ومرفوض لأسباب أمنية. احفظه بلا ماكرو.")
+    try:
+        wb = xlrd.open_workbook(file_contents=data, logfile=io.StringIO(), on_demand=False)
+    except xlrd.XLRDError as exc:
+        if "encrypt" in str(exc).lower() or "password" in str(exc).lower():
+            raise StatementError("encrypted", "الملف مشفَّر أو محميّ بكلمة مرور؛ لا يمكن قراءته.") from None
+        raise StatementError("xls_corrupt", "ملف XLS تالف أو غير مدعوم.") from None
+    except Exception:  # noqa: BLE001 - xlrd can raise struct/index errors on damaged files
+        raise StatementError("xls_corrupt", "ملف XLS تالف أو غير مكتمل.") from None
+    visible = [i for i in range(wb.nsheets) if wb.sheet_by_index(i).visibility == 0]
+    if not visible:
+        raise StatementError("xlsx_no_sheet", "لا توجد أوراق ظاهرة في المصنف.")
+    names = [wb.sheet_by_index(i).name for i in visible]
+    sh = wb.sheet_by_index(visible[_pick_sheet(names, getattr(profile, "sheet", None) if profile else None)])
+    if sh.nrows > MAX_ROWS + 200:
+        raise StatementError("too_many_rows", f"عدد الصفوف يتجاوز الحد المسموح ({MAX_ROWS}).")
+    rows, errors = [], 0
+    for r in range(sh.nrows):
+        row = []
+        for c in range(sh.ncols):
+            t, v = sh.cell_type(r, c), sh.cell_value(r, c)
+            if t in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                val = None
+            elif t == xlrd.XL_CELL_TEXT:
+                val = v.strip() or None
+            elif t == xlrd.XL_CELL_NUMBER:
+                val = int(v) if float(v).is_integer() and abs(v) < 1e15 else float(v)
+            elif t == xlrd.XL_CELL_DATE:
+                try:
+                    val = xlrd.xldate_as_datetime(v, wb.datemode).date()
+                except (xlrd.XLDateError, ValueError, OverflowError):
+                    val, errors = None, errors + 1
+            elif t == xlrd.XL_CELL_BOOLEAN:
+                val = bool(v)
+            else:  # error cells
+                val, errors = None, errors + 1
+            row.append(val)
+        rows.append(row)
+    return RawTable(rows, {"format": "xls", "sheet": sh.name, "error_cells": errors})

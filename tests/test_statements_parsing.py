@@ -218,7 +218,7 @@ class FormatRegistryTests(unittest.TestCase):
             self.assertIn("غير مدعومة بعد", str(cm.exception))
         with self.assertRaises(StatementError):
             readers.detect_format("a.pdf", b"x", "pdf")
-        self.assertEqual(set(readers.SUPPORTED), {"csv", "xlsx"})
+        self.assertEqual(set(readers.SUPPORTED), {"csv", "xlsx", "xls"})
 
 
 class ProfileTests(unittest.TestCase):

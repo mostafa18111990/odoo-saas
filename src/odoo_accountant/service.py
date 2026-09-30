@@ -20,6 +20,7 @@ from .models import (
 )
 from .policy import Policy
 from .statements import run_preview as statement_preview
+from .statements.normalizer import normalize_statement_file
 from .statements.dedupe import ImportRegistry
 from .workflows import WORKFLOWS
 
@@ -66,6 +67,8 @@ class AccountingEmployee:
         try:
             if cmd.command in REPORT_COMMANDS:
                 return self._report(cmd)
+            if cmd.command == "normalize_statement_file":
+                return self._normalize(cmd)
             if cmd.command == "statement_import_preview":
                 return self._statement_preview(cmd)
             if cmd.command == "propose_statement_import":
@@ -98,6 +101,22 @@ class AccountingEmployee:
         h = report["header"]
         msg = f"{report['title']} — الفترة {h['period']['from']} → {h['period']['to']} (قراءة فقط، دون أي تغيير)"
         return ResponseEnvelope(cmd.context.request_id, True, "report", msg, report)
+
+    def _normalize(self, cmd) -> ResponseEnvelope:
+        ctx = cmd.context
+        rep = normalize_statement_file(self.config, dict(cmd.params), self.profiles_dir)
+        self.audit.append("statement_normalize", request_id=ctx.request_id, channel=ctx.channel, actor=ctx.actor_id,
+                          result={"ok": rep["ok"], "source_sha256": rep["source"]["sha256"], "source_format": rep["source"]["format"],
+                                  "output_sha256": (rep.get("output") or {}).get("sha256"), "output_file": (rep.get("output") or {}).get("filename"),
+                                  "rows": rep.get("counts"), "blockers": len(rep["blockers"])})
+        if rep["ok"]:
+            msg = (f"{rep['title']}: تم — {rep['totals']['movements']} حركة، المجموع {rep['totals']['sum']:.2f}، "
+                   f"الملف: {rep['output']['filename']}. لم يُرفع شيء إلى Odoo.")
+        elif rep["needs_clarification"]:
+            msg = f"{rep['title']}: متوقف ويحتاج توضيحًا — " + " ".join(rep["blockers"][:2])
+        else:
+            msg = f"{rep['title']}: لم يُنتَج ملف — " + "؛ ".join(rep["blockers"][:3])
+        return ResponseEnvelope(ctx.request_id, rep["ok"], "report", msg, rep, error=None if rep["ok"] else "blocked")
 
     def _statement_preview(self, cmd) -> ResponseEnvelope:
         report, _ = statement_preview(self.client, self.config, dict(cmd.params), self.profiles_dir)

@@ -20,9 +20,10 @@ _OBJ = lambda props, req=(): {"type": "object", "properties": props, "required":
 
 _STMT_PROPS = {
     "content_base64": {"type": "string", "description": "محتوى الملف base64 (CSV أو XLSX، حد 5MB)"},
+    "source_path": {"type": "string", "description": "مسار ملف محلي داخل مجلد مسموح (inputs/ أو uploads أو ODOO_ACCOUNTANT_INPUT_DIRS) — بديل عن content_base64؛ يُقرأ فقط ولا يُعدَّل"},
     "rows": {"type": "array", "items": {"type": "object"}, "description": "بديل عن الملف: صفوف جاهزة {date(YYYY-MM-DD), amount, payment_ref, partner_name?, balance?, currency?} (حد 5000)"},
     "filename": {"type": "string"},
-    "format": {"type": "string", "enum": ["csv", "xlsx", "ofx", "qfx", "camt053"], "description": "ofx/qfx/camt053 مخطَّط لها وغير مدعومة بعد"},
+    "format": {"type": "string", "enum": ["csv", "xlsx", "xls", "ofx", "qfx", "camt053"], "description": "المدعوم فعليًا: csv وxlsx وxls؛ ofx/qfx/camt053 مخطَّط لها وغير مدعومة بعد"},
     "profile": {"oneOf": [{"type": "string"}, {"type": "object"}], "description": "اسم profile محفوظ أو كائن profile صريح"},
     "company_id": {"type": "integer"}, "journal_id": {"type": "integer"}, "bank_account_id": {"type": "integer"},
     "currency": {"type": "string", "description": "مثل SAR"},
@@ -38,6 +39,7 @@ TOOLS: dict = {
     "partner_data_quality": ("نواقص بيانات الشركاء (قراءة فقط).", _OBJ({"date_from": _DATE, "date_to": _DATE, "company_id": {"type": "integer"}})),
     "vendor_bill_review": ("مراجعة فواتير الموردين (قراءة فقط).", _OBJ({"move_ids": {"type": "array", "items": {"type": "integer"}}, "date_from": _DATE, "date_to": _DATE, "limit": {"type": "integer"}, "company_id": {"type": "integer"}})),
     "period_close_check": ("قائمة جاهزية إقفال شهر (قراءة فقط).", _OBJ({"month": {"type": "string", "description": "YYYY-MM"}, "company_id": {"type": "integer"}})),
+    "normalize_statement_file": ("تطبيع كشف بنكي (CSV/XLSX/XLS القديم) إلى ملف XLSX قياسي جديد: ورقة Bank Transactions بأعمدة Date وPayment Reference وAmount (وCurrency اختياريًا)، الوارد موجب والصادر سالب، تواريخ حقيقية yyyy-mm-dd، مع تقرير تحقق (عدد، مجموع، رصيد، checksums). لا يلمس Odoo ولا يعدّل المصدر؛ يكتب ملفًا محليًا جديدًا فقط ويتوقف عند الغموض.", _OBJ({"source_path": {"type": "string", "description": "مسار ملف محلي داخل مجلد مسموح (قراءة فقط)"}, "content_base64": {"type": "string"}, "filename": {"type": "string"}, "format": {"type": "string", "enum": ["csv", "xlsx", "xls"]}, "profile": {"oneOf": [{"type": "string"}, {"type": "object"}]}, "currency": {"type": "string"}, "include_currency": {"type": "boolean"}, "sheet": {"oneOf": [{"type": "string"}, {"type": "integer"}]}, "opening_balance": {"type": "number"}, "closing_balance": {"type": "number"}, "decimal_places": {"type": "integer"}})),
     "statement_import_preview": ("معاينة استيراد كشف حساب بنكي بدون أي كتابة: اكتشاف الأعمدة، تنسيق التواريخ والأرقام، الأرصدة، التكرارات (exact/possible)، والتحقق من الشركة واليومية والحساب البنكي والعملة. يقبل content_base64 (CSV/XLSX) أو rows جاهزة.", _OBJ({**_STMT_PROPS}) ),
     "propose_statement_import": ("اقتراح استيراد الحركات الجديدة فقط إلى account.bank.statement.line (proposal فقط؛ يحتاج موافقة مستقلة بالكود وبصمة الحمولة). التسوية مرحلة منفصلة.", _OBJ({**_STMT_PROPS, "idempotency_key": {"type": "string"}}) ),
     "propose_action": ("تحضير عملية كتابة كخطة + طلب موافقة. لا ينفذ شيئًا في Odoo.", _OBJ({"action": {"type": "string"}, "params": {"type": "object"}, "idempotency_key": {"type": "string"}}, ["action", "params"])),

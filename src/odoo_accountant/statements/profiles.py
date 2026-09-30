@@ -19,7 +19,7 @@ _DATE_FORMATS_OK = re.compile(r"^(%[dmYyHMSbBj]|[-/.\s:,])+$")
 class MappingProfile:
     name: str
     bank: str = ""
-    format: str = "csv"  # csv | xlsx
+    format: str = "csv"  # csv | xlsx | xls (xlsx/xls profiles are interchangeable: both are spreadsheets)
     encoding: str | None = None
     delimiter: str | None = None
     sheet: str | int | None = None
@@ -39,8 +39,8 @@ class MappingProfile:
             raise StatementError(code, "profile غير صالح: " + msg)
         if not _NAME.match(self.name or ""):
             bad("profile_name", "الاسم يجب أن يكون a-z و0-9 و- و_ (2..40 حرفًا).")
-        if self.format not in ("csv", "xlsx"):
-            bad("profile_format", "format يجب أن يكون csv أو xlsx.")
+        if self.format not in ("csv", "xlsx", "xls"):
+            bad("profile_format", "format يجب أن يكون csv أو xlsx أو xls.")
         extra = set(self.columns) - _COLUMN_KEYS
         if extra:
             bad("profile_columns", "أدوار أعمدة غير معروفة: " + ", ".join(sorted(extra)))
@@ -115,3 +115,8 @@ def resolve_profile(spec, directory: Path | None = None) -> MappingProfile | Non
     if isinstance(spec, dict):
         return MappingProfile.from_dict(spec)
     raise StatementError("profile_invalid", "profile يجب أن يكون اسمًا محفوظًا أو كائنًا.")
+
+
+def formats_compatible(profile_format: str, file_format: str) -> bool:
+    sheets = {"xlsx", "xls"}
+    return profile_format == file_format or (profile_format in sheets and file_format in sheets)

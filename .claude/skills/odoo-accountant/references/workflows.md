@@ -63,7 +63,7 @@
 ## 7) statement-import (استيراد كشف بنكي)
 - **متى:** المستخدم يقدّم كشفًا (CSV/XLSX أو صفوف جاهزة) للاستيراد.
 - **المدخلات:** الملف أو `rows`، `profile`، وأربعة عناصر هدف صريحة (`company_id`, `journal_id`, `bank_account_id`, `currency`)، وأرصدة اختيارية.
-- **الخطوات:** `statement_import_preview` ← راجع الأعمدة والأرصدة والتكرار مع المستخدم ← `propose_statement_import` ← موافقة بالكود والبصمة ← `execute_approved_action` ← قراءة راجعة.
+- **الخطوات:** إن كان الملف XLS أو غير قياسي ← `normalize_statement_file` أولًا (راجع التقرير، وتوقف عند `needs_clarification`) ← `statement_import_preview` ← راجع الأعمدة والأرصدة والتكرار مع المستخدم ← `propose_statement_import` ← موافقة بالكود والبصمة ← `execute_approved_action` ← قراءة راجعة.
 - **يحتاج موافقة:** الاستيراد الفعلي فقط؛ المعاينة قراءة فقط.
 - **المخرج:** تقرير معاينة (ملف، profile، تحليل، أرصدة، exact/possible، خطة استيراد) ثم نتيجة التنفيذ والتحقق.
-- **الحدود:** لا تسوية ولا حذف ولا تعديل؛ OFX/QFX/CAMT.053 غير مدعومة بعد. التفاصيل في `statement-import.md`.
+- **الحدود:** لا تسوية ولا حذف ولا تعديل؛ الصيغ المدعومة CSV وXLSX وXLS (XLS عبر xlrd المثبّت)؛ OFX/QFX/CAMT.053 غير مدعومة بعد. التفاصيل في `statement-import.md`.

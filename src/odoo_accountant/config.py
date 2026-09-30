@@ -8,7 +8,9 @@ from pathlib import Path
 
 from .errors import ConfigError
 
-_DEFAULT_RUNTIME = Path(__file__).resolve().parents[2] / ".runtime"
+_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_RUNTIME = _ROOT / ".runtime"
+_DEFAULT_OUTPUT = _ROOT / "outputs" / "statements"
 
 
 def _flag(value: str | None) -> bool:
@@ -28,6 +30,8 @@ class Config:
     ttl_financial_final: int = 600
     approvers: tuple = ("cli:*", "claude_code:*")
     allow_destructive: bool = False
+    output_dir: Path = _DEFAULT_OUTPUT
+    input_dirs: tuple = ()
 
     @classmethod
     def from_env(cls, env: dict | None = None) -> "Config":
@@ -39,6 +43,9 @@ class Config:
             p.strip() for p in env.get("ODOO_ACCOUNTANT_APPROVERS", "cli:*,claude_code:*").split(",") if p.strip()
         )
         runtime = env.get("ODOO_ACCOUNTANT_RUNTIME_DIR")
+        output = Path(env["ODOO_ACCOUNTANT_OUTPUT_DIR"]) if env.get("ODOO_ACCOUNTANT_OUTPUT_DIR") else _DEFAULT_OUTPUT
+        extra_in = tuple(Path(x) for x in env.get("ODOO_ACCOUNTANT_INPUT_DIRS", "").split(os.pathsep) if x.strip())
+        inputs = (_ROOT / "inputs", Path.home() / ".claude" / "uploads", output) + extra_in
         return cls(
             url=(env.get("ODOO_URL") or "").rstrip("/"),
             db=env.get("ODOO_DB") or "",
@@ -48,6 +55,8 @@ class Config:
             ca_bundle=ca,
             approvers=approvers or ("cli:*", "claude_code:*"),
             allow_destructive=_flag(env.get("ODOO_ACCOUNTANT_ALLOW_DESTRUCTIVE")),
+            output_dir=output,
+            input_dirs=inputs,
         )
 
     def require_odoo(self) -> None:
@@ -66,4 +75,5 @@ class Config:
             "login": self.login,
             "auth": "api-key" if self.token else "platform-injected",
             "runtime_dir": str(self.runtime_dir),
+            "output_dir": str(self.output_dir),
         }

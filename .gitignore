@@ -6,6 +6,10 @@
 *.key
 *.pem
 
+# generated statement files / local inputs (bank data, never committed)
+outputs/
+inputs/
+
 # python
 __pycache__/
 *.py[cod]

@@ -54,6 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--allow-reimport-file", action="store_true")
     s = sub.add_parser("statement-preview", help="read-only preview of a statement import"); stmt(s)
     s = sub.add_parser("statement-propose", help="create an approval proposal for the import (no Odoo write)"); stmt(s); s.add_argument("--print-code", action="store_true")
+    s = sub.add_parser("statement-normalize", help="convert a bank export (CSV/XLSX/XLS) to a standard XLSX; never touches Odoo or the source")
+    s.add_argument("--file", required=True); s.add_argument("--format"); s.add_argument("--profile"); s.add_argument("--currency")
+    s.add_argument("--include-currency", action="store_true"); s.add_argument("--sheet"); s.add_argument("--opening", type=float); s.add_argument("--closing", type=float)
     s = sub.add_parser("profile-save", help="save a bank mapping profile (local file)"); s.add_argument("--file", required=True); s.add_argument("--overwrite", action="store_true")
     sub.add_parser("profile-list")
     sub.add_parser("list-pending")
@@ -100,6 +103,13 @@ def run(argv: list[str], employee: AccountingEmployee | None = None, config: Con
     elif args.cmd == "propose-action":
         with open(args.file, encoding="utf-8") as fh:
             name, cmd_params = "propose_action", json.load(fh)
+    elif args.cmd == "statement-normalize":
+        name = "normalize_statement_file"
+        cmd_params = {"filename": Path(args.file).name, "content_base64": base64.b64encode(Path(args.file).read_bytes()).decode(), "format": args.format,
+                      "currency": args.currency, "include_currency": True if args.include_currency else None, "sheet": args.sheet,
+                      "opening_balance": args.opening, "closing_balance": args.closing}
+        if args.profile:
+            cmd_params["profile"] = json.loads(Path(args.profile[1:]).read_text(encoding="utf-8")) if args.profile.startswith("@") else args.profile
     elif args.cmd in ("statement-preview", "statement-propose"):
         name = "statement_import_preview" if args.cmd == "statement-preview" else "propose_statement_import"
         cmd_params = {"format": args.format, "company_id": args.company_id, "journal_id": args.journal_id, "bank_account_id": args.bank_account_id,

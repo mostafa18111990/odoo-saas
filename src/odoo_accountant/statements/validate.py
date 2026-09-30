@@ -68,3 +68,35 @@ def check_consistency(lines, opening, closing, dp=2, today=None):
     if repeats:
         issues.append(issue(None, "repeated_rows_in_file", f"{repeats} مجموعة صفوف متطابقة (تاريخ/مبلغ/بيان) داخل الملف؛ قد تكون حركات مشروعة متكررة وستُستورد كلها ما لم تكن موجودة في Odoo.", "warning"))
     return out, issues
+
+
+def balance_chain_report(lines, opening=None, closing=None, dp=2):
+    """Explicit running-balance test with differences. Needs a Balance on every line."""
+    if not lines or any(l.balance is None for l in lines):
+        return {"present": False, "status": "not_available"}
+
+    def breaks(seq):
+        out = []
+        for i in range(1, len(seq)):
+            expected = round(seq[i - 1].balance + seq[i].amount, dp)
+            actual = round(seq[i].balance, dp)
+            if abs(expected - actual) > TOL:
+                out.append({"row": seq[i].source_row, "expected_balance": expected, "actual_balance": actual, "difference": round(actual - expected, dp)})
+        return out
+
+    asc, desc = breaks(lines), breaks(list(reversed(lines)))
+    order, bad = ("ascending", asc) if len(asc) <= len(desc) else ("descending", desc)
+    timeline = lines if order == "ascending" else list(reversed(lines))
+    first, last = timeline[0], timeline[-1]
+    derived_opening = round(first.balance - first.amount, dp)
+    rep = {"present": True, "order": order if len(lines) > 1 else "single", "status": "ok" if not bad else "broken",
+           "breaks": bad[:5], "breaks_total": len(bad), "derived_opening": derived_opening, "last_balance": round(last.balance, dp)}
+    if opening is not None:
+        rep["opening_difference"] = round(derived_opening - opening, dp)
+        if abs(rep["opening_difference"]) > TOL:
+            rep["status"] = "broken"
+    if closing is not None:
+        rep["closing_difference"] = round(last.balance - closing, dp)
+        if abs(rep["closing_difference"]) > TOL:
+            rep["status"] = "broken"
+    return rep

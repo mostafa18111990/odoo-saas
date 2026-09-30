@@ -9,13 +9,16 @@ from ..errors import StatementError
 from .dedupe import ImportRegistry, assign_fingerprints, classify_against_existing, file_sha256, rows_sha256, unique_import_id
 from .detect import detect
 from .limits import EXISTING_LINES_CAP, DUP_WINDOW_DAYS, MAX_BASE64_CHARS, MAX_BYTES, MAX_ISSUES_SHOWN, MAX_ROWS
+from .limits import OUTPUT_SHEET
 from .normalize import normalize_rows, normalize_table
-from .profiles import resolve_profile
-from .readers import PLANNED, detect_format, read_table
+from .normalizer import verify_normalized_output
+from .inputs import read_source_bytes, resolve_source_path
+from .profiles import MappingProfile, formats_compatible, resolve_profile
+from .readers import PLANNED, detect_format, read_table, supported_formats
 from .target import check_target
 from .validate import check_consistency
 
-ARG_KEYS = {"content_base64", "rows", "filename", "format", "profile", "company_id", "journal_id", "bank_account_id",
+ARG_KEYS = {"source_path", "content_base64", "rows", "filename", "format", "profile", "company_id", "journal_id", "bank_account_id",
             "currency", "opening_balance", "closing_balance", "include_possible_duplicates", "allow_reimport_file", "idempotency_key"}
 TARGET_KEYS = ("company_id", "journal_id", "bank_account_id", "currency")
 _TARGET_AR = {"company_id": "الشركة (company_id)", "journal_id": "اليومية (journal_id)", "bank_account_id": "الحساب البنكي (bank_account_id)", "currency": "العملة (currency)"}
@@ -59,9 +62,10 @@ def run_preview(client, config, args: dict, profiles_dir=None):
     extra = set(args) - ARG_KEYS
     if extra:
         raise StatementError("args_unknown", "معاملات غير معروفة: " + ", ".join(sorted(extra)))
+    has_p = args.get("source_path") is not None
     has_c, has_r = args.get("content_base64") is not None, args.get("rows") is not None
-    if has_c == has_r:
-        raise StatementError("input_required", "مطلوب مدخل واحد بالضبط: content_base64 (ملف) أو rows (صفوف جاهزة).")
+    if (has_p + has_c + has_r) != 1:
+        raise StatementError("input_required", "مطلوب مدخل واحد بالضبط: source_path (ملف محلي مسموح) أو content_base64 (ملف) أو rows (صفوف جاهزة).")
     company_id, journal_id, bank_id = (_int_or_none(args.get(k), k) for k in ("company_id", "journal_id", "bank_account_id"))
     currency = args.get("currency")
     if currency is not None and not re.match(r"^[A-Z]{3}$", str(currency)):
@@ -78,27 +82,38 @@ def run_preview(client, config, args: dict, profiles_dir=None):
 
     # ---- input -> lines ------------------------------------------------
     detection = None
-    if has_c:
-        data = _decode_b64(args["content_base64"])
-        fmt = detect_format(args.get("filename"), data, args.get("format"))
+    provenance = None
+    if has_c or has_p:
+        if has_p:
+            real = resolve_source_path(args["source_path"], config)
+            data, fname = read_source_bytes(real), (args.get("filename") or real.name)
+        else:
+            data, fname = _decode_b64(args["content_base64"]), args.get("filename")
+        fmt = detect_format(fname, data, args.get("format"))
         sha = file_sha256(data)
-        file_info = {"name": (args.get("filename") or "")[:255], "format": fmt, "size_bytes": len(data), "sha256": sha}
+        file_info = {"name": (fname or "")[:255], "format": fmt, "size_bytes": len(data), "sha256": sha}
         table = read_table(data, fmt, profile)
         file_info.update({k: v for k, v in table.meta.items() if k in ("encoding", "delimiter", "sheet")})
         work_profile, profile_source = profile, ("saved_or_inline" if profile else None)
-        if profile is None:
+        std = verify_normalized_output(data) if (profile is None and fmt == "xlsx") else None
+        if std is not None:     # output of normalize_statement_file (or an identical standard layout): explicit by construction
+            cols = {"date": "Date", "amount": "Amount", "payment_ref": "Payment Reference"}
+            if std.get("_with_currency"):
+                cols["currency"] = "Currency"
+            work_profile = MappingProfile.from_dict({"name": "odoo-normalized", "bank": "normalized", "format": "xlsx", "sheet": OUTPUT_SHEET, "columns": cols})
+            profile_source = "normalized_output"
+            provenance = {k: v for k, v in std.items() if not k.startswith("_")}
+        elif profile is None:
             detection = detect(table)
             if detection["suggested_profile"] and detection["complete"]:
-                from .profiles import MappingProfile
                 sp = dict(detection["suggested_profile"])
-                fmt_label = sp.get("date_format")
                 try:
                     work_profile = MappingProfile.from_dict(sp)
                     profile_source = "auto_detected"
                 except StatementError:
                     work_profile = None
             blockers.append("لا يوجد profile صريح؛ اعتمد الـ profile المقترح (احفظه باسم بنك) ثم أعد المعاينة.")
-        elif profile.format != fmt:
+        elif not formats_compatible(profile.format, fmt):
             blockers.append(f"الـ profile معرَّف لصيغة {profile.format} والملف {fmt}.")
         if work_profile is None:
             lines, issues, info = [], [], {"rows_total": 0, "rows_parsed": 0, "rows_rejected": 0}
@@ -145,6 +160,8 @@ def run_preview(client, config, args: dict, profiles_dir=None):
     duplicates = {"exact": [], "possible": [], "counts": {}}
     registry = ImportRegistry(config.runtime_dir)
     file_seen = registry.status(sha) if sha else None
+    if not file_seen and provenance and provenance.get("source_sha256"):
+        file_seen = registry.status(provenance["source_sha256"])      # same bank file normalized differently
     if file_seen:
         msg = f"بصمة الملف SHA-256 سبق تسجيلها ({file_seen.get('status')})."
         if file_seen.get("status") in ("imported", "import_unverified") and not args.get("allow_reimport_file"):
@@ -187,7 +204,7 @@ def run_preview(client, config, args: dict, profiles_dir=None):
     if lines and fps and not to_import and not blockers:
         blockers.append("لا توجد حركات جديدة للاستيراد (كلها مكررة أو مستبعدة).")
 
-    explicit_profile = profile is not None or profile_source == "normalized_rows"
+    explicit_profile = profile is not None or profile_source in ("normalized_rows", "normalized_output")
     ready = not blockers and explicit_profile and bool(to_import) and not missing
     params = None
     if ready:
@@ -216,6 +233,7 @@ def run_preview(client, config, args: dict, profiles_dir=None):
                         "creates": "account.bank.statement.line (قيود كشف بنكي مرحّلة)", "reconciliation": "لا تسوية ولا ترحيل إضافي؛ التسوية مرحلة منفصلة بموافقة مستقلة."},
         "sample": [{"date": l.date, "amount": l.amount, "payment_ref": l.payment_ref[:80]} for l in lines[:5]],
         "limits": {"max_bytes": MAX_BYTES, "max_rows": MAX_ROWS},
-        "formats": {"supported": ["csv", "xlsx"], "planned_not_supported": sorted(PLANNED)},
+        "formats": {"supported": supported_formats(), "planned_not_supported": sorted(PLANNED)},
+        "provenance": provenance,
     })
     return report, {"params": params, "ready": ready, "sha": sha}
