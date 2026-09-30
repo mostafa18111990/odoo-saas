@@ -25,5 +25,18 @@
       "Read(./.env)",
       "Read(./.env.local)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/ensure_runtime.py\""
+          }
+        ]
+      }
+    ]
   }
 }

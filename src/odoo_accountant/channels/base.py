@@ -29,7 +29,7 @@ class ChannelAdapter(abc.ABC):
 class LocalChannel(ChannelAdapter):
     """Claude Code / CLI: the code stays in .runtime/pending_codes (0600, denied to the agent).
 
-    The human retrieves it with `python -m odoo_accountant.cli show-code <approval_id>`.
+    The human retrieves it with `python3 scripts/odoo_accountant_cli.py show-code <approval_id>`.
     """
 
     name = "local"
@@ -43,5 +43,5 @@ class LocalChannel(ChannelAdapter):
     def deliver_approval_code(self, ctx, approval_id, code):
         return (
             "الكود المؤقت محفوظ محليًا ولم يُعرض للنموذج. "
-            f"يحصل عليه المستخدم بنفسه: python -m odoo_accountant.cli show-code {approval_id}"
+            f"يحصل عليه المستخدم بنفسه: python3 scripts/odoo_accountant_cli.py show-code {approval_id}"
         )

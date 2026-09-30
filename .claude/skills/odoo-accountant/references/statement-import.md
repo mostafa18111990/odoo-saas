@@ -63,7 +63,7 @@
 - **مخطَّط لها وغير مدعومة**: OFX وQFX وCAMT.053 — تُرفض برسالة واضحة. التوسعة: أضف قارئًا في `statements/readers.py` يعيد `RawTable`، أو محوّلًا ينتج `rows` جاهزة، مع اختبارات.
 
 ## الـ mapping profile
-ملف JSON لكل بنك في `statement_profiles/` (بلا أسرار؛ `format` يقبل csv وxlsx وxls): أعمدة `date` و`amount` أو (`debit`+`credit`) و`payment_ref` (عمود أو أكثر) و`balance`/`currency`/`partner_name`، و`date_format` صريح للتواريخ النصية، و`decimal_separator`/`thousands_separator`، و`header_row`/`skip_footer_rows`/`sheet`/`encoding`/`delimiter`/`invert_amount`/`drcr_suffix`. الحفظ: `python -m odoo_accountant.cli profile-save --file p.json`. اعتمد الاقتراح المكتشف فقط بعد مراجعته؛ لا تحفظ profile من تخمين: اتجاه الإشارة (وارد/صادر) يجب أن يُتحقق منه مع المستخدم على أول ملف.
+ملف JSON لكل بنك في `statement_profiles/` (بلا أسرار؛ `format` يقبل csv وxlsx وxls): أعمدة `date` و`amount` أو (`debit`+`credit`) و`payment_ref` (عمود أو أكثر) و`balance`/`currency`/`partner_name`، و`date_format` صريح للتواريخ النصية، و`decimal_separator`/`thousands_separator`، و`header_row`/`skip_footer_rows`/`sheet`/`encoding`/`delimiter`/`invert_amount`/`drcr_suffix`. الحفظ: `python3 scripts/odoo_accountant_cli.py profile-save --file p.json`. اعتمد الاقتراح المكتشف فقط بعد مراجعته؛ لا تحفظ profile من تخمين: اتجاه الإشارة (وارد/صادر) يجب أن يُتحقق منه مع المستخدم على أول ملف.
 
 ## ما تفحصه المعاينة
 1. أعمدة وتنسيقات (تاريخ، أرقام عربية/غربية، أقواس سالبة، مدين/دائن).

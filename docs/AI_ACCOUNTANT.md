@@ -28,8 +28,8 @@
 ## أمثلة داخل Claude Code
 - «أعطني ملخص آخر 90 يومًا» ← قراءة فورية.
 - «رتّب متأخرات العملاء فوق 60 يومًا» ← `overdue_followup`.
-- «رحّل المسودات 41001 و41002» ← يعرض الخطة (المبالغ، بصمة الحمولة، انتهاء الصلاحية). أنت تحصل على الكود بنفسك: `! python -m odoo_accountant.cli show-code apr_xxxx`، ثم تكتب: «أوافق، الكود XXXXXXXX، البصمة …» فيُنفَّذ مرة واحدة ويُقرأ الناتج للتحقق.
-- من الطرفية: `python -m odoo_accountant.cli propose-action --file plan.json` ثم `approve <id> --code C --payload-hash H --execute` ثم `execute <id> --code C --payload-hash H` (dry-run) ثم أضف `--execute` للتنفيذ الفعلي.
+- «رحّل المسودات 41001 و41002» ← يعرض الخطة (المبالغ، بصمة الحمولة، انتهاء الصلاحية). أنت تحصل على الكود بنفسك: `! python3 scripts/odoo_accountant_cli.py show-code apr_xxxx`، ثم تكتب: «أوافق، الكود XXXXXXXX، البصمة …» فيُنفَّذ مرة واحدة ويُقرأ الناتج للتحقق.
+- من الطرفية: `python3 scripts/odoo_accountant_cli.py propose-action --file plan.json` ثم `approve <id> --code C --payload-hash H --execute` ثم `execute <id> --code C --payload-hash H` (dry-run) ثم أضف `--execute` للتنفيذ الفعلي.
 
 مثال `plan.json`:
 ```json
@@ -41,13 +41,22 @@
 - **الصيغ المدعومة فعليًا:** CSV وXLSX وXLS القديم (عبر الاعتماد الاختياري المثبَّت `xlrd==2.0.1`: `pip install "xlrd==2.0.1"` أو `pip install -e ".[xls]"`؛ بدونه يُرفض XLS برسالة واضحة). **OFX وQFX وCAMT.053:** مخطَّطة وتُرفض برسالة واضحة (لا ادعاء دعم غير مختبر). مدخل بديل: `rows` جاهزة (مناسب لملفات Telegram لاحقًا). الحدود: 5MB و5000 صف، ورسائل خطأ عربية.
 - **المعاينة:** اكتشاف الأعمدة (اقتراح فقط)، تنسيق التاريخ والأرقام (بما فيها الأرقام العربية)، العملة، الأرصدة الافتتاحية/الختامية وتسلسل عمود الرصيد، وبصمة الملف SHA-256 وبصمة كل حركة، ومقارنة exact/possible مع Odoo.
 - **الهدف صريح دائمًا:** `company_id` و`journal_id` و`bank_account_id` و`currency`؛ أي تعارض ⇒ رفض.
-- **الـ mapping profile:** JSON لكل بنك في `statement_profiles/` (`python -m odoo_accountant.cli profile-save --file p.json`).
+- **الـ mapping profile:** JSON لكل بنك في `statement_profiles/` (`python3 scripts/odoo_accountant_cli.py profile-save --file p.json`).
 - **التحقق الإلزامي:** كل معاينة تتضمن `description_visibility` (الحقل المعروض `payment_ref` يُثبَت من شاشات التسوية الحية، وتحليل عناوين الأعمدة كما يفعل المعالج، ولا سطر بلا وصف)؛ `blocked`/`unverified` يمنعان الاقتراح. التنفيذ يتحقق بقراءة راجعة أن `payment_ref` مخزَّن.
 - **إصلاح أسطر بلا وصف:** `bank_match_suggest` يكشفها (`lines_without_label`) وعملية `fill_statement_line_label` (بموافقة مستقلة) تملأ التسمية الفارغة فقط بنسخ حرفية من `payment_reference`.
 - **الأثر:** الاستيراد `create` فقط على `account.bank.statement.line` (قيد كشف بنكي مرحّل لكل سطر)، بلا تسوية ولا حذف ولا تعديل. التسوية مرحلة منفصلة بموافقة أخرى.
 - **التطبيع:** ورقة `Bank Transactions` بأعمدة Date وLabel وAmount (العمود Label هو ما يربطه Odoo بالحقل `payment_ref` الذي تعرضه شاشة التسوية؛ العنوان «Payment Reference» يُربط بحقل القيد المخفي `payment_reference` فيظهر الوصف فارغًا)، تواريخ حقيقية، الوارد موجب، وصف مضغوط كامل، نصوص خاملة بلا معادلات، اسم آمن `outputs/statements/normalized_*.xlsx`، وتقرير (عدد، مجموع، تسلسل الرصيد، checksums للمصدر والناتج). `source_path` محصور بمجلدات مسموحة (`inputs/` وuploads وODOO_ACCOUNTANT_INPUT_DIRS). يتوقف عند الغموض ولا ينتج ملفًا عند أي صف مرفوض أو رصيد غير متسق.
 - **CLI:** `statement-normalize` و`statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
 - مرجع مفصل: `.claude/skills/odoo-accountant/references/statement-import.md`.
+
+## شروط التشغيل (مُتحقَّق منها)
+| الشرط | كيف يُضمن | فحص |
+|---|---|---|
+| `xlrd==2.0.1` لقراءة XLS القديم | hook `SessionStart` في `.claude/settings.json` يشغّل `scripts/ensure_runtime.py` (تثبيت pip مثبّت الإصدار، لا يفشل الجلسة) | `python3 scripts/ensure_runtime.py --check` (يخرج 1 إن غاب) |
+| قراءة المرفقات | `source_path` ضمن `inputs/` أو `~/.claude/uploads` أو `outputs/statements` أو `ODOO_ACCOUNTANT_INPUT_DIRS` (تُحسم الروابط الرمزية قبل الفحص) | نفس الأمر يعرض المجلدات المسموحة |
+| كتابة الناتج | `outputs/statements` (أو `ODOO_ACCOUNTANT_OUTPUT_DIR`) خارج git | يعرض قابلية الكتابة |
+| كود الموافقة للإنسان | `python3 scripts/odoo_accountant_cli.py show-code <id>` (يعمل بدون `pip install`) | اختبار التكامل |
+| مخططات MCP الحديثة | أعد الاتصال بخادم MCP بعد أي تحديث للكود (`/mcp`) | `tools/list` يجب أن يُظهر 14 أداة وأن `source_path` ضمن مخطط الاستيراد |
 
 ## الإعداد
 - متغيرات: `ODOO_URL`, `ODOO_DB`, `ODOO_LOGIN` (+ `ODOO_API_KEY` اختياري إن لم تتوفر بيانات اعتماد محقونة). انظر `.env.example` (أسماء فقط).
