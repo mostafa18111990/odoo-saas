@@ -1,0 +1,54 @@
+# الموظف المحاسب الآلي — odoo-accountant
+
+موظف AI محاسب على **Odoo 19** (JSON-2) يعمل الآن داخل Claude Code، وجاهز معماريًا لاستقبال الأوامر لاحقًا من Telegram. القدرة التقنية كاملة (قراءة، إنشاء، تعديل، ترحيل، دفع، مطابقة، إشعار دائن، إلغاء/عكس، أنشطة، رسائل، قفل فترة)، لكن **كل تنفيذ حساس يمر ببوابة موافقة قابلة للتدقيق**. «صلاحيات كاملة» = توفر القدرة، لا التنفيذ العشوائي.
+
+## ما يستطيعه
+| النوع | العمليات |
+|---|---|
+| قراءة (فورية) | `accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check` |
+| كتابة (بموافقة) | `create_draft_customer_invoice`, `create_draft_vendor_bill`, `update_draft_move`, `post_move`, `register_payment`, `reconcile_statement_line`, `create_credit_note`, `cancel_or_reverse_move`, `create_followup_activity`, `send_followup_message`, `set_period_lock` |
+| مرفوض | الحذف (`unlink`) وأي دالة Odoo غير مدرجة. لا توجد أداة «استدعاء أي دالة». |
+
+## مستويات الصلاحية
+| المستوى | أمثلة | الشرط |
+|---|---|---|
+| `READ` | التقارير الستة | بلا موافقة |
+| `DRAFT_WRITE` | مسودة فاتورة، تعديل مسودة، نشاط متابعة | موافقة واحدة بالكود؛ صلاحية 30 دقيقة |
+| `FINANCIAL_FINAL` | ترحيل، دفع، مطابقة، إشعار دائن، إلغاء/عكس، رسالة خارجية، قفل فترة | موافقة صريحة على **بصمة الحمولة (payload_hash)** + الكود؛ صلاحية 10 دقائق |
+| `DESTRUCTIVE` | حذف | غير مسموح افتراضيًا (`ODOO_ACCOUNTANT_ALLOW_DESTRUCTIVE=1` لا يضيف حذفًا فعليًا لعدم وجود handler) |
+
+## دورة الأمر
+1. **propose**: التحقق من المعاملات (رفض أي معامل غير معروف)، قراءة الحالة الحالية، حساب `expected` (بصمة الحالة)، اشتقاق مفتاح idempotency، وإنشاء سجل موافقة موقّع (HMAC) مع `payload_hash`. يُخزَّن الكود مجزّأً؛ نسخته الوحيدة في `.runtime/pending_codes/` للإنسان. إن وُجدت **موانع** (blockers) لا تُنشأ موافقة.
+2. **approve**: يتحقق من المُوافِق (قائمة `ODOO_ACCOUNTANT_APPROVERS`)، والكود، والانتهاء، وبصمة الحمولة (إلزامية للمالية النهائية). 5 أكواد خاطئة = قفل الطلب.
+3. **execute**: فحوص قبل التنفيذ (السياسة، الموافقة، عدم انحراف الحالة عن `expected`، idempotency)، ثم **استهلاك الموافقة ذريًا** (مرة واحدة)، ثم التنفيذ عبر `client._mutate` فقط، ثم **قراءة راجعة** للتحقق من الحالة والمبلغ والعملة، ثم تدقيق. `dry_run` يتحقق دون استهلاك.
+4. **audit**: `.runtime/audit.jsonl` إضافة فقط ومتسلسل بالتجزئة (يكشف العبث: `verify-audit`)، مع حجب تلقائي لأي password/token/authorization/api key/كود.
+
+ضمانات: منع الإعادة (replay)، كشف تغيير الحمولة بعد الموافقة، مفتاح idempotency، فشل مغلق (`failed_review`) عند فشل غير محسوم بدل إعادة المحاولة العمياء.
+
+## أمثلة داخل Claude Code
+- «أعطني ملخص آخر 90 يومًا» ← قراءة فورية.
+- «رتّب متأخرات العملاء فوق 60 يومًا» ← `overdue_followup`.
+- «رحّل المسودات 41001 و41002» ← يعرض الخطة (المبالغ، بصمة الحمولة، انتهاء الصلاحية). أنت تحصل على الكود بنفسك: `! python -m odoo_accountant.cli show-code apr_xxxx`، ثم تكتب: «أوافق، الكود XXXXXXXX، البصمة …» فيُنفَّذ مرة واحدة ويُقرأ الناتج للتحقق.
+- من الطرفية: `python -m odoo_accountant.cli propose-action --file plan.json` ثم `approve <id> --code C --payload-hash H --execute` ثم `execute <id> --code C --payload-hash H` (dry-run) ثم أضف `--execute` للتنفيذ الفعلي.
+
+مثال `plan.json`:
+```json
+{"action": "post_move", "params": {"move_ids": [41001]}}
+```
+
+## الإعداد
+- متغيرات: `ODOO_URL`, `ODOO_DB`, `ODOO_LOGIN` (+ `ODOO_API_KEY` اختياري إن لم تتوفر بيانات اعتماد محقونة). انظر `.env.example` (أسماء فقط).
+- `.mcp.json` يشغّل `scripts/run_odoo_accountant_mcp.py` (خادم MCP بمكتبة بايثون القياسية فقط).
+- `.claude/settings.json`: أدوات القراءة و`propose_action` مسموحة؛ `approve/reject/execute` تسأل المستخدم دائمًا؛ وقراءة/كتابة `.runtime/` و`.env` ممنوعة على الوكيل.
+- الوكيل الفرعي `.claude/agents/odoo-accountant.md` بلا Bash (لا curl) وبـ `permissionMode: default`.
+
+## صدق الحدود
+- بوابة الموافقة تعتمد على أن الكود يصل للإنسان فقط (ملف 0600 + منع القراءة في الإعدادات + سؤال المستخدم قبل approve/execute). ليست حماية تشفيرية ضد وكيل يملك Bash مفتوحًا؛ لذلك لا يُمنح الوكيل Bash.
+- كتابات Odoo (خصوصًا `reconcile_statement_line` و`create_credit_note` و`cancel_or_reverse_move`) مبنية على دلالات ORM في Odoo 19 **ولم تُختبر على Odoo حي** (ممنوع أثناء البناء). ابدأ بعنصر واحد قليل القيمة وراجع نتيجة القراءة الراجعة.
+- المطابقة لا تعمل عند غياب الشريك أو تعدد المرشحين. الإشعار الدائن كامل فقط (لا جزئي).
+
+## جاهزية Telegram
+`channels/base.py` يحدد `ChannelAdapter` (إرسال، طلب موافقة، تسليم الكود للإنسان). `channels/telegram_stub.py` يقدّم عقدًا فقط: قائمة مسموحة `TELEGRAM_ALLOWED_USER_IDS`، وتحويل الرسالة إلى `CommandEnvelope`، وصيغة `callback_data` لأزرار Approve/Reject. **المؤجل الوحيد**: الاتصال الفعلي (bot token من البيئة، استقبال التحديثات، إرسال الأزرار والكود لمحادثة الإنسان)، وقد وُسمت بـ TODO. منطق المحاسبة نفسه مفصول عن القناة (`service.AccountingEmployee.handle`).
+
+## الاختبارات
+`PYTHONPATH=src python3 -m unittest discover -s tests -t .` — بلا اتصال حي: تصنيف السياسة، الانتهاء، العبث بالحمولة، الإعادة، idempotency، حجب الأسرار، مسارات القراءة، عدم تنفيذ أي تعديل دون موافقة، وخادم MCP.

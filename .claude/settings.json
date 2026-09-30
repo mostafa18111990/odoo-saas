@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__odoo-accountant__accounting_snapshot",
+      "mcp__odoo-accountant__overdue_followup",
+      "mcp__odoo-accountant__bank_match_suggest",
+      "mcp__odoo-accountant__partner_data_quality",
+      "mcp__odoo-accountant__vendor_bill_review",
+      "mcp__odoo-accountant__period_close_check",
+      "mcp__odoo-accountant__propose_action",
+      "mcp__odoo-accountant__list_pending_approvals"
+    ],
+    "ask": [
+      "mcp__odoo-accountant__approve_action",
+      "mcp__odoo-accountant__reject_action",
+      "mcp__odoo-accountant__execute_approved_action"
+    ],
+    "deny": [
+      "Read(./.runtime/**)",
+      "Edit(./.runtime/**)",
+      "Write(./.runtime/**)",
+      "Read(./.env)",
+      "Read(./.env.local)"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "odoo-accountant"
+version = "0.1.0"
+description = "AI accounting employee for Odoo 19 with an auditable approval gate"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+odoo-accountant = "odoo_accountant.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
