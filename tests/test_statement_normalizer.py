@@ -83,7 +83,7 @@ class XlsTests(Sandbox):
         # output file
         data, t = self.read_out(rep)
         self.assertEqual(t.meta["sheet"], "Bank Transactions")
-        self.assertEqual(t.rows[0], ["Date", "Payment Reference", "Amount"])
+        self.assertEqual(t.rows[0], ["Date", "Label", "Amount"])
         self.assertEqual([r[0].isoformat() for r in t.rows[1:]], ["2026-09-29", "2026-09-30"])
         self.assertEqual([r[2] for r in t.rows[1:]], [7452, 5589])
         for r in t.rows[1:]:
@@ -117,9 +117,9 @@ class XlsTests(Sandbox):
     def test_currency_column_only_on_request(self):
         rep = self.norm(content_base64=b64(FIXTURE.read_bytes()), filename="a.xls", include_currency=True)
         _, t = self.read_out(rep)
-        self.assertEqual(t.rows[0], ["Date", "Payment Reference", "Amount", "Currency"]); self.assertEqual(t.rows[1][3], "SAR")
+        self.assertEqual(t.rows[0], ["Date", "Label", "Amount", "Currency"]); self.assertEqual(t.rows[1][3], "SAR")
         plain = self.norm(content_base64=b64(FIXTURE.read_bytes()), filename="a.xls")
-        self.assertEqual(self.read_out(plain)[1].rows[0], ["Date", "Payment Reference", "Amount"])
+        self.assertEqual(self.read_out(plain)[1].rows[0], ["Date", "Label", "Amount"])
         bad = self.csv("Date,Description,Amount\n15/09/2026,A,10.00\n", include_currency=True)
         self.assertFalse(bad["ok"]); self.assertTrue(any("currency" in b for b in bad["blockers"]))
         self.assertTrue(self.csv("Date,Description,Amount\n15/09/2026,A,10.00\n", include_currency=True, currency="SAR")["ok"])

@@ -12,7 +12,7 @@
 - الحذف مرفوض افتراضيًا.
 
 ## استيراد الكشف البنكي
-- `normalize_statement_file` (تحويل محلي إلى XLSX قياسي، بلا Odoo) ← `statement_import_preview` (قراءة) ← `propose_statement_import` (proposal فقط) ← موافقة مستقلة وتنفيذ؛ CSV وXLSX وXLS (XLS عبر `xlrd==2.0.1`). لا رفع تلقائي إلى Odoo. التسوية مرحلة منفصلة بموافقة أخرى. التفاصيل: `.claude/skills/odoo-accountant/references/statement-import.md`.
+- `normalize_statement_file` (تحويل محلي إلى XLSX قياسي، بلا Odoo) ← `statement_import_preview` (قراءة) ← `propose_statement_import` (proposal فقط) ← موافقة مستقلة وتنفيذ؛ CSV وXLSX وXLS (XLS عبر `xlrd==2.0.1`). لا رفع تلقائي إلى Odoo. عمود الوصف في الملف القياسي اسمه «Label» (→ `payment_ref` المعروض في شاشة التسوية) وليس «Payment Reference»؛ والتحقق `description_visibility` إلزامي في المعاينة. التسوية مرحلة منفصلة بموافقة أخرى. التفاصيل: `.claude/skills/odoo-accountant/references/statement-import.md`.
 
 ## قواعد صارمة
 - لا تكشف أو تطلب أو تحفظ أي سر. الاعتماد يأتي من البيئة (`ODOO_URL`, `ODOO_DB`, `ODOO_LOGIN`) وحقن بيانات الاعتماد؛ لا تطلب `ODOO_SECRET`.

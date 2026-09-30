@@ -625,6 +625,9 @@ class ImportBankStatementLines(Handler):
         from .statements.target import check_target
         info, blockers, dp = check_target(client, p["company_id"], p["journal_id"], p["bank_account_id"], p["currency"])
         warnings = []
+        from .statements.visibility import check_description_visibility
+        vis = check_description_visibility(client, p["lines"])
+        blockers.extend(vis["problems"]); warnings.extend(vis["warnings"])
         bad_fp = [i for i, l in enumerate(p["lines"]) if not verify_fp(p["journal_id"], l, p["currency"], dp)]
         if bad_fp:
             blockers.append(f"بصمة {len(bad_fp)} حركة لا تطابق محتواها (عبث أو معاملات مختلفة).")
@@ -669,12 +672,19 @@ class ImportBankStatementLines(Handler):
             created.extend(ids if isinstance(ids, list) else [ids])
         return {"created_ids": created, "created_count": len(created)}
 
+    @staticmethod
+    def _labels_ok(p, rows) -> bool:
+        from .statements.dedupe import unique_import_id
+        want = {unique_import_id(l["fp"]): " ".join(l["payment_ref"].split()) for l in p["lines"]}
+        got = {x["unique_import_id"]: " ".join(str(x.get("payment_ref") or "").split()) for x in rows}
+        return len(got) == len(want) and all(got.get(k) == v and v for k, v in want.items())
+
     def verify(self, client, p, r):
         from .statements.dedupe import unique_import_id
         uids = [unique_import_id(l["fp"]) for l in p["lines"]]
         rows = []
         for i in range(0, len(uids), 500):
-            rows += client.search_read("account.bank.statement.line", [["unique_import_id", "in", uids[i:i + 500]]], ["journal_id", "amount", "date", "is_reconciled", "unique_import_id"])
+            rows += client.search_read("account.bank.statement.line", [["unique_import_id", "in", uids[i:i + 500]]], ["journal_id", "amount", "date", "is_reconciled", "unique_import_id", "payment_ref"])
         exp_total = round(sum(l["amount"] for l in p["lines"]), 6)
         after = len(self._existing(client, p))
         checks = [
@@ -683,14 +693,79 @@ class ImportBankStatementLines(Handler):
             ("sum of amounts equals plan", abs(sum(x["amount"] for x in rows) - exp_total) <= TOL),
             ("existing lines untouched (window grew by exactly N)", after == p["expected"]["window_count"] + len(p["lines"])),
             ("none reconciled by the import", not any(x["is_reconciled"] for x in rows)),
+            ("description stored in payment_ref (the field the reconciliation screen shows) for every line", self._labels_ok(p, rows)),
         ]
         return {"ok": all(c[1] for c in checks), "checks": checks, "created": len(rows)}
+
+
+class FillStatementLineLabel(Handler):
+    """Repair: fill a BLANK `payment_ref` (Label) on existing, unreconciled statement lines by copying the text that
+    landed in the hidden `payment_reference`. Never overwrites a non-empty label; text must equal the current source."""
+    name = "fill_statement_line_label"
+    keys = {"lines"}
+
+    def validate(self, p):
+        super().validate(p)
+        lines = p.get("lines")
+        if not isinstance(lines, list) or not (1 <= len(lines) <= 50):
+            raise ValidationError("'lines' must contain 1..50 lines")
+        seen = set()
+        for i, ln in enumerate(lines):
+            if not isinstance(ln, dict):
+                raise ValidationError(f"line {i}: must be an object")
+            _reject_unknown(ln, {"statement_line_id", "payment_ref"})
+            _int(ln, "statement_line_id"); _str(ln, "payment_ref", 2000)
+            if ln["statement_line_id"] in seen:
+                raise ValidationError(f"line {i}: repeated statement_line_id")
+            seen.add(ln["statement_line_id"])
+
+    def _read(self, client, p):
+        ids = [l["statement_line_id"] for l in p["lines"]]
+        return {r["id"]: r for r in client.read("account.bank.statement.line", ids, ["payment_ref", "payment_reference", "is_reconciled", "date", "amount", "journal_id"])}
+
+    def preview(self, client, p):
+        rows = self._read(client, p)
+        blockers, expected = [], {}
+        norm = lambda t: " ".join(str(t or "").split())
+        for ln in p["lines"]:
+            r = rows.get(ln["statement_line_id"])
+            sid = ln["statement_line_id"]
+            if not r:
+                blockers.append(f"السطر {sid} غير موجود."); continue
+            if r["is_reconciled"]:
+                blockers.append(f"السطر {sid} مُسوّى؛ لا تعديل.")
+            if norm(r["payment_ref"]):
+                blockers.append(f"السطر {sid} له تسمية (payment_ref) بالفعل؛ لن أستبدلها.")
+            if not norm(r["payment_reference"]):
+                blockers.append(f"السطر {sid} ليس فيه نص في payment_reference لنسخه.")
+            elif norm(r["payment_reference"]) != norm(ln["payment_ref"]):
+                blockers.append(f"النص المقترح للسطر {sid} ليس نسخة مطابقة من payment_reference الحالي.")
+            expected[str(sid)] = {"date": r["date"], "amount": r["amount"], "journal_id": _m2o(r["journal_id"])}
+        return _res(blockers, summary=f"تعبئة التسمية (payment_ref) الفارغة لـ {len(p['lines'])} سطر كشف بنكي بنسخ نصها من payment_reference — لا تغيير للمبلغ أو التاريخ أو التسوية.",
+                    targets=[_target("account.bank.statement.line", l["statement_line_id"], "") for l in p["lines"]],
+                    expected=expected, details={"lines": len(p["lines"])})
+
+    def run(self, client, p, auth):
+        for ln in p["lines"]:
+            client._mutate("account.bank.statement.line", "write", {"ids": [ln["statement_line_id"]], "vals": {"payment_ref": ln["payment_ref"]}}, auth)
+        return {"updated": [l["statement_line_id"] for l in p["lines"]]}
+
+    def verify(self, client, p, r):
+        rows = self._read(client, p)
+        norm = lambda t: " ".join(str(t or "").split())
+        checks = []
+        for ln in p["lines"]:
+            x, e = rows.get(ln["statement_line_id"]), p["expected"][str(ln["statement_line_id"])]
+            checks.append((f"{ln['statement_line_id']} label stored", bool(x) and norm(x["payment_ref"]) == norm(ln["payment_ref"])))
+            checks.append((f"{ln['statement_line_id']} date/amount/journal unchanged and still unreconciled",
+                           bool(x) and x["date"] == e["date"] and _close(x["amount"], e["amount"]) and _m2o(x["journal_id"]) == e["journal_id"] and not x["is_reconciled"]))
+        return {"ok": all(c[1] for c in checks), "checks": checks}
 
 
 HANDLERS: dict = {h.name: h for h in (
     CreateDraftCustomerInvoice(), CreateDraftVendorBill(), UpdateDraftMove(), PostMove(), RegisterPayment(),
     ReconcileStatementLine(), CreateCreditNote(), CancelOrReverseMove(), CreateFollowupActivity(),
-    SendFollowupMessage(), SetPeriodLock(), ImportBankStatementLines(),
+    SendFollowupMessage(), SetPeriodLock(), ImportBankStatementLines(), FillStatementLineLabel(),
 )}
 
 

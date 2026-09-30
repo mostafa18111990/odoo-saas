@@ -42,8 +42,10 @@
 - **المعاينة:** اكتشاف الأعمدة (اقتراح فقط)، تنسيق التاريخ والأرقام (بما فيها الأرقام العربية)، العملة، الأرصدة الافتتاحية/الختامية وتسلسل عمود الرصيد، وبصمة الملف SHA-256 وبصمة كل حركة، ومقارنة exact/possible مع Odoo.
 - **الهدف صريح دائمًا:** `company_id` و`journal_id` و`bank_account_id` و`currency`؛ أي تعارض ⇒ رفض.
 - **الـ mapping profile:** JSON لكل بنك في `statement_profiles/` (`python -m odoo_accountant.cli profile-save --file p.json`).
+- **التحقق الإلزامي:** كل معاينة تتضمن `description_visibility` (الحقل المعروض `payment_ref` يُثبَت من شاشات التسوية الحية، وتحليل عناوين الأعمدة كما يفعل المعالج، ولا سطر بلا وصف)؛ `blocked`/`unverified` يمنعان الاقتراح. التنفيذ يتحقق بقراءة راجعة أن `payment_ref` مخزَّن.
+- **إصلاح أسطر بلا وصف:** `bank_match_suggest` يكشفها (`lines_without_label`) وعملية `fill_statement_line_label` (بموافقة مستقلة) تملأ التسمية الفارغة فقط بنسخ حرفية من `payment_reference`.
 - **الأثر:** الاستيراد `create` فقط على `account.bank.statement.line` (قيد كشف بنكي مرحّل لكل سطر)، بلا تسوية ولا حذف ولا تعديل. التسوية مرحلة منفصلة بموافقة أخرى.
-- **التطبيع:** ورقة `Bank Transactions` بأعمدة Date وPayment Reference وAmount، تواريخ حقيقية، الوارد موجب، وصف مضغوط كامل، نصوص خاملة بلا معادلات، اسم آمن `outputs/statements/normalized_*.xlsx`، وتقرير (عدد، مجموع، تسلسل الرصيد، checksums للمصدر والناتج). `source_path` محصور بمجلدات مسموحة (`inputs/` وuploads وODOO_ACCOUNTANT_INPUT_DIRS). يتوقف عند الغموض ولا ينتج ملفًا عند أي صف مرفوض أو رصيد غير متسق.
+- **التطبيع:** ورقة `Bank Transactions` بأعمدة Date وLabel وAmount (العمود Label هو ما يربطه Odoo بالحقل `payment_ref` الذي تعرضه شاشة التسوية؛ العنوان «Payment Reference» يُربط بحقل القيد المخفي `payment_reference` فيظهر الوصف فارغًا)، تواريخ حقيقية، الوارد موجب، وصف مضغوط كامل، نصوص خاملة بلا معادلات، اسم آمن `outputs/statements/normalized_*.xlsx`، وتقرير (عدد، مجموع، تسلسل الرصيد، checksums للمصدر والناتج). `source_path` محصور بمجلدات مسموحة (`inputs/` وuploads وODOO_ACCOUNTANT_INPUT_DIRS). يتوقف عند الغموض ولا ينتج ملفًا عند أي صف مرفوض أو رصيد غير متسق.
 - **CLI:** `statement-normalize` و`statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
 - مرجع مفصل: `.claude/skills/odoo-accountant/references/statement-import.md`.
 

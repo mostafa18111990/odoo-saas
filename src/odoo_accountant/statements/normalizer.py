@@ -21,7 +21,7 @@ from ..storage import atomic_write_bytes, ensure_dir
 from .dedupe import file_sha256
 from .detect import detect, detect_account_hint, detect_currency
 from .inputs import read_source_bytes, resolve_source_path
-from .limits import MAX_BASE64_CHARS, MAX_BYTES, MAX_ISSUES_SHOWN, NORMALIZER_VERSION, OUTPUT_COLUMNS, OUTPUT_SHEET
+from .limits import LEGACY_OUTPUT_COLUMNS, MAX_BASE64_CHARS, MAX_BYTES, MAX_ISSUES_SHOWN, NORMALIZER_VERSION, ODOO_FIELD_MAP, OUTPUT_COLUMNS, OUTPUT_SHEET
 from .normalize import normalize_table
 from .profiles import MappingProfile, formats_compatible, resolve_profile
 from .readers import detect_format, read_table, supported_formats, PLANNED
@@ -187,7 +187,10 @@ def normalize_statement_file(config, args: dict, profiles_dir=None) -> dict:
     # ---- round-trip verification of what was written ------------------------
     rt_ok, rt_detail = _roundtrip(path.read_bytes(), lines, dp, bool(args.get("include_currency")))
     report["output"] = {"path": str(path), "filename": fname, "size_bytes": len(xlsx), "sha256": out_sha, "sheet": OUTPUT_SHEET,
-                        "columns": list(OUTPUT_COLUMNS) + (["Currency"] if args.get("include_currency") else []), "roundtrip_verified": rt_ok, "roundtrip": rt_detail}
+                        "columns": list(OUTPUT_COLUMNS) + (["Currency"] if args.get("include_currency") else []), "roundtrip_verified": rt_ok, "roundtrip": rt_detail,
+                        "odoo_field_map": {**ODOO_FIELD_MAP, **({"Currency": "(informational — do not map)"} if args.get("include_currency") else {})},
+                        "description_column": "Label", "description_field": "payment_ref"}
+    report["warnings"].append("العمود «Label» يُربط في معالج الاستيراد بالحقل payment_ref الذي تعرضه شاشة التسوية. لا تغيّر اسمه إلى «Payment Reference» (يُربط بحقل القيد المخفي payment_reference). تحقّق Odoo الفعلي يتم في statement_import_preview.")
     if not rt_ok:
         report["ok"] = False
         report["blockers"].append("فشل التحقق الراجع من الملف الناتج؛ لا تستخدمه. " + rt_detail.get("reason", ""))
@@ -231,8 +234,9 @@ def verify_normalized_output(data: bytes) -> dict | None:
     if not t.rows:
         return None
     hdr = [h for h in t.rows[0] if h is not None]
-    if hdr not in (list(OUTPUT_COLUMNS), list(OUTPUT_COLUMNS) + ["Currency"]):
+    legacy = hdr[:3] == list(LEGACY_OUTPUT_COLUMNS)
+    if hdr not in (list(OUTPUT_COLUMNS), list(OUTPUT_COLUMNS) + ["Currency"], list(LEGACY_OUTPUT_COLUMNS), list(LEGACY_OUTPUT_COLUMNS) + ["Currency"]):
         return None
     if any(not isinstance(r[0], _dt.date) for r in t.rows[1:] if r):
         return None
-    return read_custom_properties(data) | {"_with_currency": len(hdr) == 4}
+    return read_custom_properties(data) | {"_with_currency": len(hdr) == 4, "_legacy_header": legacy, "_description_header": hdr[1]}

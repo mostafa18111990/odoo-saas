@@ -17,6 +17,7 @@ from .profiles import MappingProfile, formats_compatible, resolve_profile
 from .readers import PLANNED, detect_format, read_table, supported_formats
 from .target import check_target
 from .validate import check_consistency
+from .visibility import check_description_visibility
 
 ARG_KEYS = {"source_path", "content_base64", "rows", "filename", "format", "profile", "company_id", "journal_id", "bank_account_id",
             "currency", "opening_balance", "closing_balance", "include_possible_duplicates", "allow_reimport_file", "idempotency_key"}
@@ -97,12 +98,12 @@ def run_preview(client, config, args: dict, profiles_dir=None):
         work_profile, profile_source = profile, ("saved_or_inline" if profile else None)
         std = verify_normalized_output(data) if (profile is None and fmt == "xlsx") else None
         if std is not None:     # output of normalize_statement_file (or an identical standard layout): explicit by construction
-            cols = {"date": "Date", "amount": "Amount", "payment_ref": "Payment Reference"}
+            cols = {"date": "Date", "amount": "Amount", "payment_ref": std["_description_header"]}
             if std.get("_with_currency"):
                 cols["currency"] = "Currency"
             work_profile = MappingProfile.from_dict({"name": "odoo-normalized", "bank": "normalized", "format": "xlsx", "sheet": OUTPUT_SHEET, "columns": cols})
             profile_source = "normalized_output"
-            provenance = {k: v for k, v in std.items() if not k.startswith("_")}
+            provenance = dict(std)
         elif profile is None:
             detection = detect(table)
             if detection["suggested_profile"] and detection["complete"]:
@@ -155,6 +156,14 @@ def run_preview(client, config, args: dict, profiles_dir=None):
             blockers.append(i["message"])
     if not lines and not blockers:
         blockers.append("لا توجد حركات صالحة.")
+
+    # ---- mandatory: will the description be visible on the reconciliation screen? ----
+    visibility = None
+    if lines:
+        headers = [std_hdr for std_hdr in ([provenance.get("_description_header")] if provenance and provenance.get("_description_header") else [])]
+        visibility = check_description_visibility(client, [{"payment_ref": l.payment_ref} for l in lines], headers)
+        blockers.extend(visibility["problems"])
+        warnings.extend(visibility["warnings"])
 
     # ---- duplicates -----------------------------------------------------
     duplicates = {"exact": [], "possible": [], "counts": {}}
@@ -220,7 +229,7 @@ def run_preview(client, config, args: dict, profiles_dir=None):
         "blockers": blockers,
         "warnings": warnings,
         "file": file_info,
-        "profile": {"name": profile.name if profile else None, "source": profile_source, "mapping": (profile.to_dict() if profile else None)},
+        "profile": {"name": (work_profile.name if work_profile else None), "source": profile_source, "mapping": (work_profile.to_dict() if work_profile else None)},
         "detection": detection,
         "parsing": {**info, "issues_total": len(issues), "issues": issues[:MAX_ISSUES_SHOWN]},
         "consistency": consistency,
@@ -234,6 +243,7 @@ def run_preview(client, config, args: dict, profiles_dir=None):
         "sample": [{"date": l.date, "amount": l.amount, "payment_ref": l.payment_ref[:80]} for l in lines[:5]],
         "limits": {"max_bytes": MAX_BYTES, "max_rows": MAX_ROWS},
         "formats": {"supported": supported_formats(), "planned_not_supported": sorted(PLANNED)},
-        "provenance": provenance,
+        "provenance": ({k: v for k, v in provenance.items() if not k.startswith("_")} if provenance else None),
+        "description_visibility": visibility,
     })
     return report, {"params": params, "ready": ready, "sha": sha}

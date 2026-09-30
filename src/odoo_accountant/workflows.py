@@ -156,11 +156,25 @@ def bank_match_suggest(client, journal_id=None, date_from=None, date_to=None, li
             "partner_id": partner, "status": status, "reason": reason,
             "candidates": [{"move_id": c["id"], "name": c["name"], "amount_residual": c["amount_residual"], "ref_in_payment_ref": c["ref_in_payment_ref"]} for c in cands],
         })
+    blank_dom = [["is_reconciled", "=", False], ["payment_ref", "=", False], ["date", ">=", str(f)], ["date", "<=", str(t)]] + ([["journal_id", "=", int(journal_id)]] if journal_id else [])
+    blank_total = client.search_count("account.bank.statement.line", blank_dom)
+    blank_rows = client.search_read("account.bank.statement.line", blank_dom, ["date", "amount", "payment_reference", "journal_id"], limit=50, order="date desc")
+    norm = lambda x: " ".join(str(x or "").split())
+    repairable = [r for r in blank_rows if norm(r.get("payment_reference"))]
+    lines_without_label = {
+        "count": blank_total,
+        "why_it_matters": "payment_ref (Label) فارغ ⇒ يظهر السطر بلا وصف في شاشة التسوية. السبب الشائع: استيراد يدوي بعنوان «Payment Reference» فوصل النص إلى payment_reference (مخفي).",
+        "repairable": len(repairable),
+        "candidates": [{"statement_line_id": r["id"], "date": r["date"], "amount": r["amount"], "journal": r["journal_id"][1] if r.get("journal_id") else None, "text_preview": norm(r["payment_reference"])[:80]} for r in repairable],
+        "proposal": ({"action": "fill_statement_line_label", "params": {"lines": [{"statement_line_id": r["id"], "payment_ref": norm(r["payment_reference"])} for r in repairable]}} if repairable else None),
+        "note": "الإصلاح تعديل لسطور موجودة: propose_action بهذا المحتوى ثم موافقة صريحة؛ لا ينفَّذ تلقائيًا ولا يستبدل تسمية موجودة.",
+    }
     return {
         "report": "bank-match-suggest",
         "title": "اقتراحات المطابقة البنكية",
         "header": _header(client, f, t, "date", None, _pick(by_j, "journal_id")),
         "unreconciled_by_journal": by_j,
+        "lines_without_label": lines_without_label,
         "suggestions": out,
         "counts": {s: sum(1 for x in out if x["status"] == s) for s in ("single_candidate", "ambiguous", "no_candidate")},
         "notes": ["لا تنفيذ: أي مطابقة تمر عبر propose_action ثم موافقة صريحة."],

@@ -41,6 +41,8 @@ class FakeOdoo:
         self.reads: list = []
         self.mutations: list = []
         self.next_id = 1000
+        self.drop_label = False      # simulate the observed bug: label not stored on created lines
+        self.fail_views = False
 
     def _rows(self, model, domain):
         rows = self.tables.get(model, [])
@@ -61,7 +63,11 @@ class FakeOdoo:
         self.reads.append(("formatted_read_group", model)); return []
 
     def fields_get(self, model, attributes=None):
-        self.reads.append(("fields_get", model)); return {}
+        self.reads.append(("fields_get", model))
+        if self.fail_views and model == "account.bank.statement.line":
+            from odoo_accountant.errors import OdooError
+            raise OdooError(403, "AccessError", "no access")
+        return self.tables.get("_fields", {}).get(model, {})
 
     def _mutate(self, model, method, body, authorization):
         assert isinstance(authorization, ExecutionAuthorization)
@@ -85,9 +91,13 @@ class FakeOdoo:
             for v in body["vals_list"]:
                 self.next_id += 1
                 tbl.append({"id": self.next_id, "journal_id": [v["journal_id"], "J"], "date": v["date"], "amount": v["amount"],
-                            "payment_ref": v["payment_ref"], "unique_import_id": v["unique_import_id"], "is_reconciled": False})
+                            "payment_ref": False if self.drop_label else v["payment_ref"], "payment_reference": v["payment_ref"] if self.drop_label else False,
+                            "unique_import_id": v["unique_import_id"], "is_reconciled": False})
                 ids.append(self.next_id)
             return ids
+        elif model == "account.bank.statement.line" and method == "write":
+            for r in tbl:
+                if r["id"] in body["ids"]: r.update(body["vals"])
         elif model == "account.payment.register" and method == "create":
             return [1]
         elif model == "account.payment.register" and method == "action_create_payments":
@@ -135,4 +145,16 @@ def seed_statement_tables(lines=None) -> dict:
         "res.partner.bank": [{"id": 9, "acc_number": "SA0380000000608010167519", "active": True}, {"id": 10, "acc_number": "SA1111111111111111111111", "active": True}],
         "res.currency": [{"id": 1, "name": "SAR", "decimal_places": 2, "active": True}, {"id": 2, "name": "USD", "decimal_places": 2, "active": True}],
         "account.bank.statement.line": list(lines or []),
+        "_fields": {"account.bank.statement.line": {
+            "payment_ref": {"string": "Label", "type": "char", "store": True, "readonly": False},
+            "payment_reference": {"string": "Payment Reference", "type": "char", "store": False, "readonly": False, "related": "move_id.payment_reference"},
+            "date": {"string": "Date", "type": "date", "store": False, "readonly": False},
+            "amount": {"string": "Amount", "type": "monetary", "store": True, "readonly": False},
+            "ref": {"string": "Reference", "type": "char", "store": False, "readonly": False, "related": "move_id.ref"},
+            "transaction_details": {"string": "Transaction Details", "type": "json", "store": True, "readonly": True},
+        }},
+        "ir.ui.view": [
+            {"id": 1663, "name": "account.bank.statement.line.kanban.bank_rec_widget", "type": "kanban", "model": "account.bank.statement.line", "active": True, "arch_db": '<kanban><field name="payment_ref"/><field name="partner_name"/></kanban>'},
+            {"id": 1664, "name": "account.bank.statement.line.list.bank_rec_widget", "type": "list", "model": "account.bank.statement.line", "active": True, "arch_db": '<list><field name="payment_ref" required="1"/><field name="ref" optional="hidden"/></list>'},
+        ],
     }

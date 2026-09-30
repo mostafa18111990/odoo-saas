@@ -12,7 +12,7 @@ import zipfile
 from xml.sax.saxutils import escape
 
 from ..errors import StatementError
-from .limits import NORMALIZER_VERSION, OUTPUT_COLUMNS, OUTPUT_SHEET
+from .limits import NORMALIZER_VERSION, ODOO_FIELD_MAP, OUTPUT_COLUMNS, OUTPUT_SHEET
 
 _FIXED_TIME = (1980, 1, 1, 0, 0, 0)
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
@@ -75,7 +75,7 @@ def build_statement_xlsx(rows: list, *, include_currency: bool = False, decimal_
               '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>')
     sst = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
            f'count="{len(shared)}" uniqueCount="{len(shared)}">' + "".join(f'<si><t xml:space="preserve">{escape(t)}</t></si>' for t in shared) + "</sst>")
-    props = {"normalizer_version": NORMALIZER_VERSION, **(properties or {})}
+    props = {"normalizer_version": NORMALIZER_VERSION, "odoo_field_map": ";".join(f"{k}={v}" for k, v in ODOO_FIELD_MAP.items()), **(properties or {})}
     custom = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" '
               'xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
               + "".join(f'<property fmtid="{{D5CDD505-2E9C-101B-9397-08002B2CF9AE}}" pid="{i}" name="{escape(k)}"><vt:lpwstr>{escape(str(v))}</vt:lpwstr></property>'

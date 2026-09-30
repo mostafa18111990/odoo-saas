@@ -96,13 +96,24 @@ def _decode(data: bytes, encoding: str | None) -> tuple[str, str]:
 
 
 def _sniff_delimiter(text: str) -> str:
-    lines = [l for l in text.splitlines() if l.strip()][:20]
-    if not lines:
+    """Pick the delimiter that gives the most consistent column count over the first records.
+    Parses whole records (not physical lines) so quoted multi-line fields don't break detection."""
+    if not text.strip():
         raise StatementError("empty_file", "الملف فارغ.")
     best, best_score = None, (0, 0)
     tie = False
     for cand in (",", ";", "\t", "|"):
-        counts = [len(next(csv.reader([l], delimiter=cand))) for l in lines]
+        counts = []
+        try:
+            for row in csv.reader(io.StringIO(text), delimiter=cand):
+                if any(c.strip() for c in row):
+                    counts.append(len(row))
+                if len(counts) >= 20:
+                    break
+        except csv.Error:
+            continue
+        if not counts:
+            continue
         modal = max(set(counts), key=counts.count)
         if modal < 2:
             continue

@@ -40,6 +40,7 @@ ACTION_RISK = {
     "cancel_or_reverse_move": Risk.FINANCIAL_FINAL,
     "send_followup_message": Risk.FINANCIAL_FINAL,  # outward-facing, irreversible
     "set_period_lock": Risk.FINANCIAL_FINAL,
+    "fill_statement_line_label": Risk.FINANCIAL_FINAL,  # fills a BLANK label only; edits an existing statement line
     "import_bank_statement_lines": Risk.FINANCIAL_FINAL,  # creates posted bank-statement entries
     # never executable by default; no handler exists for them
     "delete_record": Risk.DESTRUCTIVE,

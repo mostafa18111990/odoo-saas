@@ -8,7 +8,7 @@ description: Use for ANY accounting work on the Odoo instance (account.move, acc
 مهارة قراءة أولًا لتحليل ومتابعة العمل المحاسبي في Odoo 19 عبر JSON-2. المخرجات بالعربية والحقول التقنية (`account.move`, `payment_state`, `amount_residual` ...) تبقى بالإنجليزية.
 
 ## الأدوات الآمنة (الأساس)
-داخل هذا المشروع استخدم أدوات MCP `odoo-accountant` (`accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `normalize_statement_file`, `statement_import_preview`) للقراءة، و`propose_statement_import` لاقتراح استيراد كشف بنكي (الترتيب: تطبيع ← معاينة ← proposal ← موافقة صريحة ← تنفيذ؛ لا يُرفع أي ملف إلى Odoo تلقائيًا؛ توقّف واسأل عند أي غموض في الأعمدة أو التواريخ أو الإشارة)، و`propose_action` ثم `approve_action` ثم `execute_approved_action` لأي كتابة. لا تستدعِ JSON-2 الكتابي مباشرة. التفاصيل: `docs/AI_ACCOUNTANT.md`. الأقسام التالية تبقى مرجع القواعد إن لم تتوفر الأدوات.
+داخل هذا المشروع استخدم أدوات MCP `odoo-accountant` (`accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `normalize_statement_file`, `statement_import_preview`) للقراءة، و`propose_statement_import` لاقتراح استيراد كشف بنكي (الترتيب: تطبيع ← معاينة ← proposal ← موافقة صريحة ← تنفيذ؛ لا يُرفع أي ملف إلى Odoo تلقائيًا؛ توقّف واسأل عند أي غموض في الأعمدة أو التواريخ أو الإشارة؛ والتحقق من ظهور الوصف في شاشة التسوية (description_visibility: الحقل payment_ref = Label) إلزامي في المعاينة قبل طلب أي موافقة، والعمود في الملف القياسي «Label» لا «Payment Reference»)، و`propose_action` ثم `approve_action` ثم `execute_approved_action` لأي كتابة. لا تستدعِ JSON-2 الكتابي مباشرة. التفاصيل: `docs/AI_ACCOUNTANT.md`. الأقسام التالية تبقى مرجع القواعد إن لم تتوفر الأدوات.
 
 ## الاتصال والأسرار
 - استخدم متغيرات البيئة `ODOO_URL` و`ODOO_DB` و`ODOO_LOGIN` وبيانات الاعتماد الآمنة المتاحة في الجلسة (الوكيل يضيف `Authorization: Bearer` تلقائيًا).
@@ -36,7 +36,7 @@ description: Use for ANY accounting work on the Odoo instance (account.move, acc
 | `partner-data-quality` | نواقص بيانات الشركاء (VAT، بلد، شريك) |
 | `vendor-bill-review` | مراجعة فواتير الموردين قبل الترحيل |
 | `period-close-check` | جاهزية إقفال فترة |
-| `statement-normalize` | تحويل كشف بنكي (CSV/XLSX/XLS القديم) إلى XLSX قياسي: `normalize_statement_file` محلي بلا Odoo — انظر [references/statement-import.md](references/statement-import.md) |
+| `statement-normalize` | تحويل كشف بنكي (CSV/XLSX/XLS القديم) إلى XLSX قياسي بأعمدة Date/Label/Amount: `normalize_statement_file` محلي بلا Odoo — انظر [references/statement-import.md](references/statement-import.md) |
 | `statement-import` | استيراد كشف بنكي: معاينة بلا كتابة ثم proposal فقط (التسوية مرحلة منفصلة) — نفس المرجع |
 
 الضوابط والحدود التفصيلية: [references/controls.md](references/controls.md). لقطة الأرقام (2026-09-29): [references/current-baseline.md](references/current-baseline.md).
