@@ -573,10 +573,124 @@ class SetPeriodLock(Handler):
         return {"ok": ok, "checks": [(f"{p['field']} == {p['date']}", ok)]}
 
 
+class ImportBankStatementLines(Handler):
+    """Create account.bank.statement.line rows only. Never reconciles, posts extra, edits or deletes."""
+    name = "import_bank_statement_lines"
+    keys = {"company_id", "journal_id", "bank_account_id", "currency", "file_sha256", "source_filename", "profile_name",
+            "opening_balance", "closing_balance", "lines"}
+    BATCH = 200
+
+    def validate(self, p):
+        from .statements.limits import MAX_REF_LEN, MAX_ROWS
+        super().validate(p)
+        for k in ("company_id", "journal_id", "bank_account_id"):
+            _int(p, k)
+        import re as _re
+        if not isinstance(p.get("currency"), str) or not _re.match(r"^[A-Z]{3}$", p["currency"]):
+            raise ValidationError("'currency' must be a 3-letter uppercase code")
+        if not isinstance(p.get("file_sha256"), str) or not _re.match(r"^[0-9a-f]{64}$", p["file_sha256"]):
+            raise ValidationError("'file_sha256' must be a sha256 hex digest")
+        _str(p, "source_filename", 255, required=False); _str(p, "profile_name", 60, required=False)
+        for k in ("opening_balance", "closing_balance"):
+            if p.get(k) is not None and (isinstance(p[k], bool) or not isinstance(p[k], (int, float))):
+                raise ValidationError(f"'{k}' must be a number or null")
+        lines = p.get("lines")
+        if not isinstance(lines, list) or not (1 <= len(lines) <= MAX_ROWS):
+            raise ValidationError(f"'lines' must contain 1..{MAX_ROWS} lines")
+        seen = set()
+        for i, ln in enumerate(lines):
+            if not isinstance(ln, dict):
+                raise ValidationError(f"line {i}: must be an object")
+            _reject_unknown(ln, {"date", "amount", "payment_ref", "partner_name", "fp"})
+            _date(ln, "date"); _str(ln, "payment_ref", MAX_REF_LEN); _str(ln, "partner_name", 200, required=False)
+            if isinstance(ln.get("amount"), bool) or not isinstance(ln.get("amount"), (int, float)) or ln["amount"] == 0:
+                raise ValidationError(f"line {i}: 'amount' must be a non-zero number")
+            fp = ln.get("fp")
+            if not isinstance(fp, str) or not _re.match(r"^[0-9a-f]{64}$", fp) or fp in seen:
+                raise ValidationError(f"line {i}: invalid or repeated fingerprint")
+            seen.add(fp)
+
+    def _existing(self, client, p):
+        from .statements.dedupe import DUP_WINDOW_DAYS  # noqa: F401
+        from .statements.limits import EXISTING_LINES_CAP
+        dates = [l["date"] for l in p["lines"]]
+        lo = (_dt.date.fromisoformat(min(dates)) - _dt.timedelta(days=3)).isoformat()
+        hi = (_dt.date.fromisoformat(max(dates)) + _dt.timedelta(days=3)).isoformat()
+        return client.search_read("account.bank.statement.line", [["journal_id", "=", p["journal_id"]], ["date", ">=", lo], ["date", "<=", hi]],
+                                  ["date", "amount", "payment_ref", "unique_import_id"], limit=EXISTING_LINES_CAP + 1)
+
+    def preview(self, client, p):
+        from .statements.dedupe import classify_against_existing, verify_fp
+        from .statements.records import NormalizedLine
+        from .statements.target import check_target
+        info, blockers, dp = check_target(client, p["company_id"], p["journal_id"], p["bank_account_id"], p["currency"])
+        warnings = []
+        bad_fp = [i for i, l in enumerate(p["lines"]) if not verify_fp(p["journal_id"], l, p["currency"], dp)]
+        if bad_fp:
+            blockers.append(f"بصمة {len(bad_fp)} حركة لا تطابق محتواها (عبث أو معاملات مختلفة).")
+        bad_dec = [i for i, l in enumerate(p["lines"]) if abs(round(l["amount"], dp) - l["amount"]) > 1e-6]
+        if bad_dec:
+            blockers.append(f"{len(bad_dec)} مبلغ يتجاوز المنازل العشرية للعملة.")
+        existing = []
+        if not blockers:
+            existing = self._existing(client, p)
+            from .statements.limits import EXISTING_LINES_CAP
+            if len(existing) > EXISTING_LINES_CAP:
+                blockers.append("حركات كثيرة جدًا في النطاق لفحص التكرار بأمان.")
+        exact = possible = 0
+        if not blockers:
+            nl = [NormalizedLine(i + 1, l["date"], l["amount"], l["payment_ref"]) for i, l in enumerate(p["lines"])]
+            cls = classify_against_existing(nl, [l["fp"] for l in p["lines"]], existing, dp)
+            exact = sum(1 for c in cls if c["status"] == "exact"); possible = sum(1 for c in cls if c["status"] == "possible")
+            if exact:
+                blockers.append(f"{exact} حركة موجودة بالفعل في Odoo (تكرار مطابق)؛ أعد المعاينة واستبعدها.")
+            if possible:
+                warnings.append(f"{possible} حركة تشبه حركات موجودة (تكرار محتمل) وأُدرجت صراحةً بقرار المستخدم.")
+        amounts = [l["amount"] for l in p["lines"]]; dates = [l["date"] for l in p["lines"]]
+        total = round(sum(amounts), dp)
+        jn = info.get("journal", p["journal_id"])
+        return _res(blockers, warnings,
+                    summary=f"استيراد {len(amounts)} حركة بنكية إلى «{jn}» ({p['currency']}) من {min(dates)} إلى {max(dates)}، المجموع الصافي {total:.{dp}f} (دائن {sum(a for a in amounts if a > 0):.{dp}f} / مدين {sum(a for a in amounts if a < 0):.{dp}f}) — تُنشأ قيود كشف بنكي مرحّلة؛ لا تسوية.",
+                    targets=[_target("account.journal", p["journal_id"], jn), _target("res.company", p["company_id"], info.get("company", "")), _target("res.partner.bank", p["bank_account_id"], info.get("bank_account") or "")],
+                    expected={"n_lines": len(amounts), "total": total, "exact_duplicates": 0, "window_count": len(existing)},
+                    details={"journal": jn, "currency": p["currency"], "n_lines": len(amounts), "first_date": min(dates), "last_date": max(dates), "net_total": total, "file_sha256": p["file_sha256"], "decimal_places": dp})
+
+    def run(self, client, p, auth):
+        from .statements.dedupe import unique_import_id
+        created = []
+        for i in range(0, len(p["lines"]), self.BATCH):
+            vals = []
+            for l in p["lines"][i:i + self.BATCH]:
+                v = {"journal_id": p["journal_id"], "date": l["date"], "amount": l["amount"], "payment_ref": l["payment_ref"], "unique_import_id": unique_import_id(l["fp"])}
+                if l.get("partner_name"):
+                    v["partner_name"] = l["partner_name"]
+                vals.append(v)
+            ids = client._mutate("account.bank.statement.line", "create", {"vals_list": vals}, auth)
+            created.extend(ids if isinstance(ids, list) else [ids])
+        return {"created_ids": created, "created_count": len(created)}
+
+    def verify(self, client, p, r):
+        from .statements.dedupe import unique_import_id
+        uids = [unique_import_id(l["fp"]) for l in p["lines"]]
+        rows = []
+        for i in range(0, len(uids), 500):
+            rows += client.search_read("account.bank.statement.line", [["unique_import_id", "in", uids[i:i + 500]]], ["journal_id", "amount", "date", "is_reconciled", "unique_import_id"])
+        exp_total = round(sum(l["amount"] for l in p["lines"]), 6)
+        after = len(self._existing(client, p))
+        checks = [
+            ("created count == planned", len(rows) == len(p["lines"])),
+            ("all in the approved journal", all(_m2o(x["journal_id"]) == p["journal_id"] for x in rows)),
+            ("sum of amounts equals plan", abs(sum(x["amount"] for x in rows) - exp_total) <= TOL),
+            ("existing lines untouched (window grew by exactly N)", after == p["expected"]["window_count"] + len(p["lines"])),
+            ("none reconciled by the import", not any(x["is_reconciled"] for x in rows)),
+        ]
+        return {"ok": all(c[1] for c in checks), "checks": checks, "created": len(rows)}
+
+
 HANDLERS: dict = {h.name: h for h in (
     CreateDraftCustomerInvoice(), CreateDraftVendorBill(), UpdateDraftMove(), PostMove(), RegisterPayment(),
     ReconcileStatementLine(), CreateCreditNote(), CancelOrReverseMove(), CreateFollowupActivity(),
-    SendFollowupMessage(), SetPeriodLock(),
+    SendFollowupMessage(), SetPeriodLock(), ImportBankStatementLines(),
 )}
 
 
@@ -676,5 +790,8 @@ class Executor:
         status = "executed" if verification.get("ok") else "executed_unverified"
         self.idem.set(rec["idempotency_key"], status="completed", approval_id=approval_id, verified=bool(verification.get("ok")), result=run_result)
         self.audit.append("execute_result", request_id=ctx.request_id, channel=ctx.channel, actor=ctx.actor_id, action=action, approval_id=approval_id, targets=prev["targets"], before=prev["details"], after=verification, result=status)
+        if action == "import_bank_statement_lines":
+            from .statements.dedupe import ImportRegistry
+            ImportRegistry(self.config.runtime_dir).mark(params["file_sha256"], "imported" if verification.get("ok") else "import_unverified", approval_id=approval_id, lines=len(params["lines"]))
         msg = "تم التنفيذ والتحقق" if verification.get("ok") else "نُفّذ لكن التحقق فشل — راجع Odoo فورًا"
         return ExecutionResult(bool(verification.get("ok")), action, status, msg, {"run": run_result}, verification)

@@ -19,15 +19,37 @@ from .models import (
     to_jsonable,
 )
 from .policy import Policy
+from .statements import run_preview as statement_preview
+from .statements.dedupe import ImportRegistry
 from .workflows import WORKFLOWS
 
 REPORT_COMMANDS = set(WORKFLOWS)
 APPROVAL_COMMANDS = {"propose_action", "approve_action", "reject_action", "execute_approved_action", "list_pending_approvals", "get_approval"}
 
 
+_BULKY_KEYS = {"content_base64", "rows", "lines"}
+
+
+def _shrink(obj, limit_str=300, limit_list=30):
+    """Keep bank-file content out of the audit log: bulky inputs are always replaced by their size."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if k in _BULKY_KEYS and isinstance(v, (str, list)):
+                out[k] = f"[omitted: {len(v)} {'chars' if isinstance(v, str) else 'items'}]"
+            else:
+                out[k] = _shrink(v, limit_str, limit_list)
+        return out
+    if isinstance(obj, list):
+        return [_shrink(v, limit_str, limit_list) for v in obj[:limit_list]] if len(obj) <= limit_list else f"[list of {len(obj)} items omitted]"
+    if isinstance(obj, str) and len(obj) > limit_str:
+        return f"[{len(obj)} chars omitted]"
+    return obj
+
+
 class AccountingEmployee:
     def __init__(self, config: Config, client=None, store: ApprovalStore | None = None, audit: AuditLog | None = None,
-                 channel: ChannelAdapter | None = None):
+                 channel: ChannelAdapter | None = None, profiles_dir=None):
         self.config = config
         self.client = client if client is not None else OdooClient(config)
         self.store = store or ApprovalStore(config)
@@ -35,14 +57,19 @@ class AccountingEmployee:
         self.policy = Policy(config)
         self.channel = channel or LocalChannel()
         self.executor = Executor(config, self.client, self.store, self.audit, self.policy)
+        self.profiles_dir = profiles_dir
 
     # ------------------------------------------------------------------
     def handle(self, cmd: CommandEnvelope) -> ResponseEnvelope:
         ctx = cmd.context
-        self.audit.append("command", request_id=ctx.request_id, channel=ctx.channel, actor=ctx.actor_id, action=cmd.command, params=cmd.params)
+        self.audit.append("command", request_id=ctx.request_id, channel=ctx.channel, actor=ctx.actor_id, action=cmd.command, params=_shrink(cmd.params))
         try:
             if cmd.command in REPORT_COMMANDS:
                 return self._report(cmd)
+            if cmd.command == "statement_import_preview":
+                return self._statement_preview(cmd)
+            if cmd.command == "propose_statement_import":
+                return self._statement_propose(cmd)
             if cmd.command == "propose_action":
                 return self._propose(cmd)
             if cmd.command == "approve_action":
@@ -71,6 +98,33 @@ class AccountingEmployee:
         h = report["header"]
         msg = f"{report['title']} — الفترة {h['period']['from']} → {h['period']['to']} (قراءة فقط، دون أي تغيير)"
         return ResponseEnvelope(cmd.context.request_id, True, "report", msg, report)
+
+    def _statement_preview(self, cmd) -> ResponseEnvelope:
+        report, _ = statement_preview(self.client, self.config, dict(cmd.params), self.profiles_dir)
+        self.audit.append("statement_preview", request_id=cmd.context.request_id, channel=cmd.context.channel, actor=cmd.context.actor_id,
+                          result={"ready": report["ready_to_propose"], "blockers": len(report["blockers"]), "sha256": report["file"].get("sha256"), "to_import": report["import_plan"]["to_import"]})
+        if report["ready_to_propose"]:
+            msg = f"{report['title']}: جاهز للاقتراح — {report['import_plan']['to_import']} حركة جديدة. لم يُكتب شيء."
+        else:
+            msg = f"{report['title']}: غير جاهز — " + "؛ ".join(report["blockers"][:3])
+        return ResponseEnvelope(cmd.context.request_id, True, "report", msg, report)
+
+    def _statement_propose(self, cmd) -> ResponseEnvelope:
+        ctx = cmd.context
+        args = dict(cmd.params)
+        idem = args.pop("idempotency_key", None)
+        report, plan = statement_preview(self.client, self.config, args, self.profiles_dir)
+        if not plan["ready"]:
+            self.audit.append("propose_blocked", request_id=ctx.request_id, channel=ctx.channel, actor=ctx.actor_id, action="import_bank_statement_lines", result=report["blockers"])
+            return ResponseEnvelope(ctx.request_id, False, "plan", "لا يمكن اقتراح الاستيراد: " + "؛ ".join(report["blockers"] or ["غير جاهز"]), {"preview": report}, error="blocked")
+        inner = {"action": "import_bank_statement_lines", "params": plan["params"]}
+        if idem:
+            inner["idempotency_key"] = idem
+        resp = self._propose(CommandEnvelope("propose_action", inner, ctx))
+        if resp.ok:
+            ImportRegistry(self.config.runtime_dir).mark(plan["sha"], "proposed", approval_id=resp.data["approval"]["approval_id"])
+            resp.data["statement_preview"] = {k: report[k] for k in ("file", "consistency", "duplicates", "import_plan", "target")}
+        return resp
 
     def _propose(self, cmd) -> ResponseEnvelope:
         ctx = cmd.context

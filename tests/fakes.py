@@ -80,6 +80,14 @@ class FakeOdoo:
             tbl.append({"id": self.next_id, "state": "draft", "move_type": vals["move_type"], "partner_id": [vals["partner_id"], "P"],
                         "amount_untaxed": untaxed, "amount_total": untaxed * 1.15, "currency_id": [1, "SAR"], "name": "/"})
             return [self.next_id]
+        elif model == "account.bank.statement.line" and method == "create":
+            ids = []
+            for v in body["vals_list"]:
+                self.next_id += 1
+                tbl.append({"id": self.next_id, "journal_id": [v["journal_id"], "J"], "date": v["date"], "amount": v["amount"],
+                            "payment_ref": v["payment_ref"], "unique_import_id": v["unique_import_id"], "is_reconciled": False})
+                ids.append(self.next_id)
+            return ids
         elif model == "account.payment.register" and method == "create":
             return [1]
         elif model == "account.payment.register" and method == "action_create_payments":
@@ -113,3 +121,18 @@ class TempRuntime:
 
     def __exit__(self, *a):
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def seed_statement_tables(lines=None) -> dict:
+    return {
+        "res.company": [{"id": 1, "name": "Co", "currency_id": [1, "SAR"]}, {"id": 2, "name": "Other", "currency_id": [1, "SAR"]}],
+        "account.journal": [
+            {"id": 14, "name": "Bank A", "code": "BNK1", "type": "bank", "company_id": [1, "Co"], "currency_id": False, "bank_account_id": [9, "acc"], "active": True},
+            {"id": 15, "name": "Sales", "code": "INV", "type": "sale", "company_id": [1, "Co"], "currency_id": False, "bank_account_id": False, "active": True},
+            {"id": 16, "name": "Bank USD", "code": "BNK2", "type": "bank", "company_id": [1, "Co"], "currency_id": [2, "USD"], "bank_account_id": [9, "acc"], "active": True},
+            {"id": 17, "name": "Bank NoAcc", "code": "BNK3", "type": "bank", "company_id": [1, "Co"], "currency_id": False, "bank_account_id": False, "active": True},
+        ],
+        "res.partner.bank": [{"id": 9, "acc_number": "SA0380000000608010167519", "active": True}, {"id": 10, "acc_number": "SA1111111111111111111111", "active": True}],
+        "res.currency": [{"id": 1, "name": "SAR", "decimal_places": 2, "active": True}, {"id": 2, "name": "USD", "decimal_places": 2, "active": True}],
+        "account.bank.statement.line": list(lines or []),
+    }

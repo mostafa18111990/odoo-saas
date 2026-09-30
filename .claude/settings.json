@@ -8,6 +8,8 @@
       "mcp__odoo-accountant__vendor_bill_review",
       "mcp__odoo-accountant__period_close_check",
       "mcp__odoo-accountant__propose_action",
+      "mcp__odoo-accountant__statement_import_preview",
+      "mcp__odoo-accountant__propose_statement_import",
       "mcp__odoo-accountant__list_pending_approvals"
     ],
     "ask": [

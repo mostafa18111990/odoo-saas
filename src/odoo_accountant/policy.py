@@ -26,7 +26,7 @@ FINAL_ODOO_METHODS = frozenset(
 DESTRUCTIVE_ODOO_METHODS = frozenset({"unlink"})
 
 # Models whose plain create/write is financially final rather than draft-level.
-FINAL_WRITE_MODELS = frozenset({"res.company", "account.move.line"})
+FINAL_WRITE_MODELS = frozenset({"res.company", "account.move.line", "account.bank.statement.line"})
 
 ACTION_RISK = {
     "create_draft_customer_invoice": Risk.DRAFT_WRITE,
@@ -40,6 +40,7 @@ ACTION_RISK = {
     "cancel_or_reverse_move": Risk.FINANCIAL_FINAL,
     "send_followup_message": Risk.FINANCIAL_FINAL,  # outward-facing, irreversible
     "set_period_lock": Risk.FINANCIAL_FINAL,
+    "import_bank_statement_lines": Risk.FINANCIAL_FINAL,  # creates posted bank-statement entries
     # never executable by default; no handler exists for them
     "delete_record": Risk.DESTRUCTIVE,
     "unlink_record": Risk.DESTRUCTIVE,

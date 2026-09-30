@@ -5,8 +5,8 @@
 ## ما يستطيعه
 | النوع | العمليات |
 |---|---|
-| قراءة (فورية) | `accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check` |
-| كتابة (بموافقة) | `create_draft_customer_invoice`, `create_draft_vendor_bill`, `update_draft_move`, `post_move`, `register_payment`, `reconcile_statement_line`, `create_credit_note`, `cancel_or_reverse_move`, `create_followup_activity`, `send_followup_message`, `set_period_lock` |
+| قراءة (فورية) | `accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `statement_import_preview` |
+| كتابة (بموافقة) | `create_draft_customer_invoice`, `create_draft_vendor_bill`, `update_draft_move`, `post_move`, `register_payment`, `reconcile_statement_line`, `create_credit_note`, `cancel_or_reverse_move`, `create_followup_activity`, `send_followup_message`, `set_period_lock`, `import_bank_statement_lines` (عبر `propose_statement_import`) |
 | مرفوض | الحذف (`unlink`) وأي دالة Odoo غير مدرجة. لا توجد أداة «استدعاء أي دالة». |
 
 ## مستويات الصلاحية
@@ -14,7 +14,7 @@
 |---|---|---|
 | `READ` | التقارير الستة | بلا موافقة |
 | `DRAFT_WRITE` | مسودة فاتورة، تعديل مسودة، نشاط متابعة | موافقة واحدة بالكود؛ صلاحية 30 دقيقة |
-| `FINANCIAL_FINAL` | ترحيل، دفع، مطابقة، إشعار دائن، إلغاء/عكس، رسالة خارجية، قفل فترة | موافقة صريحة على **بصمة الحمولة (payload_hash)** + الكود؛ صلاحية 10 دقائق |
+| `FINANCIAL_FINAL` | استيراد كشف بنكي، ترحيل، دفع، مطابقة، إشعار دائن، إلغاء/عكس، رسالة خارجية، قفل فترة | موافقة صريحة على **بصمة الحمولة (payload_hash)** + الكود؛ صلاحية 10 دقائق |
 | `DESTRUCTIVE` | حذف | غير مسموح افتراضيًا (`ODOO_ACCOUNTANT_ALLOW_DESTRUCTIVE=1` لا يضيف حذفًا فعليًا لعدم وجود handler) |
 
 ## دورة الأمر
@@ -36,6 +36,16 @@
 {"action": "post_move", "params": {"move_ids": [41001]}}
 ```
 
+## استيراد كشف الحساب البنكي
+- **أدوات MCP (13 إجمالًا):** `statement_import_preview` (قراءة فقط) و`propose_statement_import` (proposal محلي فقط). لا توجد أداة تنفذ الاستيراد مباشرة؛ التنفيذ عبر `approve_action` ثم `execute_approved_action` بكود وبصمة الحمولة.
+- **الصيغ المدعومة فعليًا:** CSV وXLSX. **OFX وQFX وCAMT.053:** مخطَّطة وتُرفض برسالة واضحة (لا ادعاء دعم غير مختبر). مدخل بديل: `rows` جاهزة (مناسب لملفات Telegram لاحقًا). الحدود: 5MB و5000 صف، ورسائل خطأ عربية.
+- **المعاينة:** اكتشاف الأعمدة (اقتراح فقط)، تنسيق التاريخ والأرقام (بما فيها الأرقام العربية)، العملة، الأرصدة الافتتاحية/الختامية وتسلسل عمود الرصيد، وبصمة الملف SHA-256 وبصمة كل حركة، ومقارنة exact/possible مع Odoo.
+- **الهدف صريح دائمًا:** `company_id` و`journal_id` و`bank_account_id` و`currency`؛ أي تعارض ⇒ رفض.
+- **الـ mapping profile:** JSON لكل بنك في `statement_profiles/` (`python -m odoo_accountant.cli profile-save --file p.json`).
+- **الأثر:** الاستيراد `create` فقط على `account.bank.statement.line` (قيد كشف بنكي مرحّل لكل سطر)، بلا تسوية ولا حذف ولا تعديل. التسوية مرحلة منفصلة بموافقة أخرى.
+- **CLI:** `statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
+- مرجع مفصل: `.claude/skills/odoo-accountant/references/statement-import.md`.
+
 ## الإعداد
 - متغيرات: `ODOO_URL`, `ODOO_DB`, `ODOO_LOGIN` (+ `ODOO_API_KEY` اختياري إن لم تتوفر بيانات اعتماد محقونة). انظر `.env.example` (أسماء فقط).
 - `.mcp.json` يشغّل `scripts/run_odoo_accountant_mcp.py` (خادم MCP بمكتبة بايثون القياسية فقط).
@@ -44,7 +54,7 @@
 
 ## صدق الحدود
 - بوابة الموافقة تعتمد على أن الكود يصل للإنسان فقط (ملف 0600 + منع القراءة في الإعدادات + سؤال المستخدم قبل approve/execute). ليست حماية تشفيرية ضد وكيل يملك Bash مفتوحًا؛ لذلك لا يُمنح الوكيل Bash.
-- كتابات Odoo (خصوصًا `reconcile_statement_line` و`create_credit_note` و`cancel_or_reverse_move`) مبنية على دلالات ORM في Odoo 19 **ولم تُختبر على Odoo حي** (ممنوع أثناء البناء). ابدأ بعنصر واحد قليل القيمة وراجع نتيجة القراءة الراجعة.
+- كتابات Odoo (خصوصًا `reconcile_statement_line` و`create_credit_note` و`cancel_or_reverse_move`) مبنية على دلالات ORM في Odoo 19 **ولم تُختبر على Odoo حي** (ممنوع أثناء البناء). معاينة الاستيراد وحدها اختُبرت حيًا قراءةً فقط. ابدأ بعنصر واحد قليل القيمة وراجع نتيجة القراءة الراجعة.
 - المطابقة لا تعمل عند غياب الشريك أو تعدد المرشحين. الإشعار الدائن كامل فقط (لا جزئي).
 
 ## جاهزية Telegram

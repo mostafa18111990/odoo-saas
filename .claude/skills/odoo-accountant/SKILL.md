@@ -1,6 +1,6 @@
 ---
 name: odoo-accountant
-description: Use for ANY accounting work on the Odoo instance (account.move, account.payment, account.bank.statement.line) — receivables and collections (overdue follow-up), bank reconciliation suggestions, vendor bill review, partner data quality (VAT/country/missing partner), period-close checks, and accounting snapshots/summaries. Read-only by default over JSON-2; any write needs explicit per-operation user approval. المحاسب الآلي لـ Odoo - الذمم والتحصيل، مطابقة البنك، فواتير الموردين، جودة بيانات الشركاء، إقفال الفترة، الملخص المحاسبي.
+description: Use for ANY accounting work on the Odoo instance (account.move, account.payment, account.bank.statement.line) — receivables and collections (overdue follow-up), bank reconciliation suggestions, vendor bill review, partner data quality (VAT/country/missing partner), period-close checks, bank-statement import (CSV/XLSX preview, duplicate detection, import proposal), and accounting snapshots/summaries. Read-only by default over JSON-2; any write needs explicit per-operation user approval. المحاسب الآلي لـ Odoo - الذمم والتحصيل، مطابقة البنك، فواتير الموردين، جودة بيانات الشركاء، إقفال الفترة، الملخص المحاسبي.
 ---
 
 # odoo-accountant — المحاسب الآلي لـ Odoo
@@ -8,7 +8,7 @@ description: Use for ANY accounting work on the Odoo instance (account.move, acc
 مهارة قراءة أولًا لتحليل ومتابعة العمل المحاسبي في Odoo 19 عبر JSON-2. المخرجات بالعربية والحقول التقنية (`account.move`, `payment_state`, `amount_residual` ...) تبقى بالإنجليزية.
 
 ## الأدوات الآمنة (الأساس)
-داخل هذا المشروع استخدم أدوات MCP `odoo-accountant` (`accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`) للقراءة، و`propose_action` ثم `approve_action` ثم `execute_approved_action` لأي كتابة. لا تستدعِ JSON-2 الكتابي مباشرة. التفاصيل: `docs/AI_ACCOUNTANT.md`. الأقسام التالية تبقى مرجع القواعد إن لم تتوفر الأدوات.
+داخل هذا المشروع استخدم أدوات MCP `odoo-accountant` (`accounting_snapshot`, `overdue_followup`, `bank_match_suggest`, `partner_data_quality`, `vendor_bill_review`, `period_close_check`, `statement_import_preview`) للقراءة، و`propose_statement_import` لاقتراح استيراد كشف بنكي، و`propose_action` ثم `approve_action` ثم `execute_approved_action` لأي كتابة. لا تستدعِ JSON-2 الكتابي مباشرة. التفاصيل: `docs/AI_ACCOUNTANT.md`. الأقسام التالية تبقى مرجع القواعد إن لم تتوفر الأدوات.
 
 ## الاتصال والأسرار
 - استخدم متغيرات البيئة `ODOO_URL` و`ODOO_DB` و`ODOO_LOGIN` وبيانات الاعتماد الآمنة المتاحة في الجلسة (الوكيل يضيف `Authorization: Bearer` تلقائيًا).
@@ -25,7 +25,7 @@ description: Use for ANY accounting work on the Odoo instance (account.move, acc
 6. **الخصوصية:** لا تجلب بيانات شخصية غير لازمة (هاتف، بريد، عنوان). استخدم معرّف الشريك واسمه فقط عند الحاجة.
 7. **الأرقام القديمة:** `references/current-baseline.md` لقطة مؤرخة، ليست مصدر قرار. أعد القياس من Odoo قبل أي توصية.
 
-## المسارات الستة
+## المسارات الستة + استيراد الكشف البنكي
 اختر المسار حسب الطلب، وتفاصيل الخطوات في [references/workflows.md](references/workflows.md):
 
 | المسار | متى |
@@ -36,6 +36,7 @@ description: Use for ANY accounting work on the Odoo instance (account.move, acc
 | `partner-data-quality` | نواقص بيانات الشركاء (VAT، بلد، شريك) |
 | `vendor-bill-review` | مراجعة فواتير الموردين قبل الترحيل |
 | `period-close-check` | جاهزية إقفال فترة |
+| `statement-import` | استيراد كشف بنكي CSV/XLSX: معاينة بلا كتابة ثم proposal (التسوية مرحلة منفصلة) — انظر [references/statement-import.md](references/statement-import.md) |
 
 الضوابط والحدود التفصيلية: [references/controls.md](references/controls.md). لقطة الأرقام (2026-09-29): [references/current-baseline.md](references/current-baseline.md).
 

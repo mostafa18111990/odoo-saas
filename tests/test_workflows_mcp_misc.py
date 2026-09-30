@@ -46,7 +46,7 @@ class WorkflowTests(unittest.TestCase):
 
 class McpTests(unittest.TestCase):
     def test_no_generic_tool_and_expected_set(self):
-        self.assertEqual(len(TOOLS), 11)
+        self.assertEqual(len(TOOLS), 13)
         for bad in ("arbitrary_method", "call_odoo", "execute_kw", "raw", "curl"):
             self.assertNotIn(bad, TOOLS)
         for name, (_, schema) in TOOLS.items():
@@ -68,7 +68,7 @@ class McpTests(unittest.TestCase):
             srv.serve(io.StringIO("\n".join(json.dumps(r) for r in reqs) + "\n"), out)
             msgs = [json.loads(l) for l in out.getvalue().splitlines()]
             self.assertEqual([m["id"] for m in msgs], [1, 2, 3, 4])
-            self.assertEqual(len(msgs[1]["result"]["tools"]), 11)
+            self.assertEqual(len(msgs[1]["result"]["tools"]), 13)
             body = json.loads(msgs[2]["result"]["content"][0]["text"])
             self.assertTrue(body["ok"])
             self.assertTrue(msgs[3]["result"]["isError"])

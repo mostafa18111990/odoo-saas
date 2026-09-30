@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import getpass
 import json
 import sys
+from pathlib import Path
 
 from .approvals import ApprovalStore
 from .audit import AuditLog
@@ -40,6 +42,20 @@ def build_parser() -> argparse.ArgumentParser:
         s = sub.add_parser(name); s.add_argument("approval_id"); s.add_argument("--code", default="")
         s.add_argument("--payload-hash"); s.add_argument("--reason", default="")
         s.add_argument("--execute", action="store_true", help="really apply (default is dry-run)")
+    def stmt(sp):
+        src = sp.add_mutually_exclusive_group(required=True)
+        src.add_argument("--file", help="bank statement file (CSV/XLSX)")
+        src.add_argument("--rows-file", help="JSON file with normalized rows")
+        sp.add_argument("--format"); sp.add_argument("--profile", help="saved profile name, or @path/to/profile.json")
+        sp.add_argument("--company-id", type=int); sp.add_argument("--journal-id", type=int)
+        sp.add_argument("--bank-account-id", type=int); sp.add_argument("--currency")
+        sp.add_argument("--opening", type=float); sp.add_argument("--closing", type=float)
+        sp.add_argument("--include-possible", type=int, action="append", dest="include_possible")
+        sp.add_argument("--allow-reimport-file", action="store_true")
+    s = sub.add_parser("statement-preview", help="read-only preview of a statement import"); stmt(s)
+    s = sub.add_parser("statement-propose", help="create an approval proposal for the import (no Odoo write)"); stmt(s); s.add_argument("--print-code", action="store_true")
+    s = sub.add_parser("profile-save", help="save a bank mapping profile (local file)"); s.add_argument("--file", required=True); s.add_argument("--overwrite", action="store_true")
+    sub.add_parser("profile-list")
     sub.add_parser("list-pending")
     s = sub.add_parser("show"); s.add_argument("approval_id")
     s = sub.add_parser("show-code"); s.add_argument("approval_id")
@@ -58,6 +74,16 @@ def run(argv: list[str], employee: AccountingEmployee | None = None, config: Con
             return 0
         except OdooAccountantError as exc:
             print(f"error: {exc}", file=sys.stderr); return 1
+    if args.cmd in ("profile-save", "profile-list"):
+        from .errors import StatementError
+        from .statements.profiles import MappingProfile, list_profiles, save_profile
+        try:
+            if args.cmd == "profile-list":
+                _print({"profiles": list_profiles()}); return 0
+            path = save_profile(MappingProfile.from_dict(json.loads(Path(args.file).read_text(encoding="utf-8"))), overwrite=args.overwrite)
+            _print({"saved": str(path)}); return 0
+        except StatementError as exc:
+            print(f"error: {exc}", file=sys.stderr); return 1
     if args.cmd == "verify-audit":
         ok, n = AuditLog(config.runtime_dir).verify_chain()
         _print({"ok": ok, "records": n}); return 0 if ok else 2
@@ -74,6 +100,18 @@ def run(argv: list[str], employee: AccountingEmployee | None = None, config: Con
     elif args.cmd == "propose-action":
         with open(args.file, encoding="utf-8") as fh:
             name, cmd_params = "propose_action", json.load(fh)
+    elif args.cmd in ("statement-preview", "statement-propose"):
+        name = "statement_import_preview" if args.cmd == "statement-preview" else "propose_statement_import"
+        cmd_params = {"format": args.format, "company_id": args.company_id, "journal_id": args.journal_id, "bank_account_id": args.bank_account_id,
+                      "currency": args.currency, "opening_balance": args.opening, "closing_balance": args.closing,
+                      "include_possible_duplicates": args.include_possible, "allow_reimport_file": True if args.allow_reimport_file else None}
+        if args.file:
+            cmd_params["filename"] = Path(args.file).name
+            cmd_params["content_base64"] = base64.b64encode(Path(args.file).read_bytes()).decode()
+        else:
+            cmd_params["rows"] = json.loads(Path(args.rows_file).read_text(encoding="utf-8"))
+        if args.profile:
+            cmd_params["profile"] = json.loads(Path(args.profile[1:]).read_text(encoding="utf-8")) if args.profile.startswith("@") else args.profile
     elif args.cmd == "list-pending": name = "list_pending_approvals"
     elif args.cmd == "show": name, cmd_params = "get_approval", {"approval_id": args.approval_id}
     elif args.cmd in ("approve", "reject", "execute"):
@@ -91,7 +129,7 @@ def run(argv: list[str], employee: AccountingEmployee | None = None, config: Con
             name, cmd_params = "execute_approved_action", {**base, "code": args.code, "payload_hash": args.payload_hash, "dry_run": not args.execute}
     cmd_params = {k: v for k, v in cmd_params.items() if v is not None} if name != "propose_action" else cmd_params
     resp = emp.handle(CommandEnvelope(name, cmd_params, ctx))
-    if args.cmd == "propose-action" and args.print_code and resp.ok:
+    if args.cmd in ("propose-action", "statement-propose") and args.print_code and resp.ok:
         resp.data["approval_code"] = ApprovalStore(config).read_code_file(resp.data["approval"]["approval_id"])
     _print(resp)
     return 0 if resp.ok else 1

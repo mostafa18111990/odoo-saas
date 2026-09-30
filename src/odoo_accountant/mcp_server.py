@@ -18,6 +18,19 @@ PROTOCOL = "2024-11-05"
 _DATE = {"type": "string", "description": "YYYY-MM-DD"}
 _OBJ = lambda props, req=(): {"type": "object", "properties": props, "required": list(req), "additionalProperties": False}  # noqa: E731
 
+_STMT_PROPS = {
+    "content_base64": {"type": "string", "description": "محتوى الملف base64 (CSV أو XLSX، حد 5MB)"},
+    "rows": {"type": "array", "items": {"type": "object"}, "description": "بديل عن الملف: صفوف جاهزة {date(YYYY-MM-DD), amount, payment_ref, partner_name?, balance?, currency?} (حد 5000)"},
+    "filename": {"type": "string"},
+    "format": {"type": "string", "enum": ["csv", "xlsx", "ofx", "qfx", "camt053"], "description": "ofx/qfx/camt053 مخطَّط لها وغير مدعومة بعد"},
+    "profile": {"oneOf": [{"type": "string"}, {"type": "object"}], "description": "اسم profile محفوظ أو كائن profile صريح"},
+    "company_id": {"type": "integer"}, "journal_id": {"type": "integer"}, "bank_account_id": {"type": "integer"},
+    "currency": {"type": "string", "description": "مثل SAR"},
+    "opening_balance": {"type": "number"}, "closing_balance": {"type": "number"},
+    "include_possible_duplicates": {"type": "array", "items": {"type": "integer"}, "description": "فهارس حركات «تكرار محتمل» يقرر المستخدم استيرادها"},
+    "allow_reimport_file": {"type": "boolean"},
+}
+
 TOOLS: dict = {
     "accounting_snapshot": ("ملخص محاسبي مجمّع للفترة (قراءة فقط).", _OBJ({"date_from": _DATE, "date_to": _DATE, "company_id": {"type": "integer"}})),
     "overdue_followup": ("أعمار المتأخرات وأكبر الشركاء (قراءة فقط).", _OBJ({"side": {"enum": ["out", "in"]}, "min_days": {"type": "integer"}, "limit": {"type": "integer"}, "company_id": {"type": "integer"}, "as_of": _DATE})),
@@ -25,6 +38,8 @@ TOOLS: dict = {
     "partner_data_quality": ("نواقص بيانات الشركاء (قراءة فقط).", _OBJ({"date_from": _DATE, "date_to": _DATE, "company_id": {"type": "integer"}})),
     "vendor_bill_review": ("مراجعة فواتير الموردين (قراءة فقط).", _OBJ({"move_ids": {"type": "array", "items": {"type": "integer"}}, "date_from": _DATE, "date_to": _DATE, "limit": {"type": "integer"}, "company_id": {"type": "integer"}})),
     "period_close_check": ("قائمة جاهزية إقفال شهر (قراءة فقط).", _OBJ({"month": {"type": "string", "description": "YYYY-MM"}, "company_id": {"type": "integer"}})),
+    "statement_import_preview": ("معاينة استيراد كشف حساب بنكي بدون أي كتابة: اكتشاف الأعمدة، تنسيق التواريخ والأرقام، الأرصدة، التكرارات (exact/possible)، والتحقق من الشركة واليومية والحساب البنكي والعملة. يقبل content_base64 (CSV/XLSX) أو rows جاهزة.", _OBJ({**_STMT_PROPS}) ),
+    "propose_statement_import": ("اقتراح استيراد الحركات الجديدة فقط إلى account.bank.statement.line (proposal فقط؛ يحتاج موافقة مستقلة بالكود وبصمة الحمولة). التسوية مرحلة منفصلة.", _OBJ({**_STMT_PROPS, "idempotency_key": {"type": "string"}}) ),
     "propose_action": ("تحضير عملية كتابة كخطة + طلب موافقة. لا ينفذ شيئًا في Odoo.", _OBJ({"action": {"type": "string"}, "params": {"type": "object"}, "idempotency_key": {"type": "string"}}, ["action", "params"])),
     "approve_action": ("تسجيل موافقة المستخدم على خطة (يتطلب الكود الذي يعطيه المستخدم وبصمة الحمولة).", _OBJ({"approval_id": {"type": "string"}, "code": {"type": "string"}, "payload_hash": {"type": "string"}}, ["approval_id", "code"])),
     "reject_action": ("رفض خطة معلّقة.", _OBJ({"approval_id": {"type": "string"}, "reason": {"type": "string"}}, ["approval_id"])),

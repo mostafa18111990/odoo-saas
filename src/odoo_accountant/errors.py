@@ -33,3 +33,12 @@ class OdooError(OdooClientError):
         self.status = status
         self.name = name
         self.message = message
+
+
+class StatementError(OdooAccountantError):
+    """Bank-statement input problem. `str(exc)` is a clear Arabic message."""
+
+    def __init__(self, code: str, message_ar: str):
+        super().__init__(message_ar)
+        self.code = code
+        self.message_ar = message_ar

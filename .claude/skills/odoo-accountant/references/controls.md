@@ -31,3 +31,9 @@
 - `Cannot convert ... to SQL because it is not stored`: الحقل غير مخزن؛ صفِّ بحقل مخزن أو اقرأ عيّنة.
 - `Granularity set on a no-datetime field`: لا تضع `:day` على حقل غير تاريخي، ولا تخلط aggregates داخل `groupby`.
 - `Invalid field`: تحقق بـ `fields_get` من إصدار Odoo 19.
+
+## استيراد الكشف البنكي
+- `company_id` و`journal_id` و`bank_account_id` و`currency` صريحة دائمًا؛ تعارض أو غموض ⇒ رفض، لا تخمين.
+- الاستيراد يُنشئ `account.bank.statement.line` فقط (`FINANCIAL_FINAL`، كود + بصمة الحمولة)، ولا يسوّي ولا يحذف ولا يعدّل؛ التسوية بموافقة مستقلة لاحقًا.
+- لا تُكتب محتويات الملفات أو أرقام الحسابات الكاملة في التقارير أو سجل التدقيق.
+- التفاصيل: `statement-import.md`.
