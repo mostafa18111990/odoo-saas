@@ -84,6 +84,21 @@ class OutputColumnTests(Base):
             self.assertNotIn("\n", row[1])
 
 
+class ToolDescriptionTests(unittest.TestCase):
+    """The agent plans from these descriptions: they must not advertise the header that caused the incident."""
+
+    def test_mcp_descriptions_match_the_label_fix_and_new_inputs(self):
+        from odoo_accountant.mcp_server import TOOLS
+        norm = TOOLS["normalize_statement_file"][0]
+        self.assertIn("Date وLabel وAmount", norm); self.assertNotIn("Date وPayment Reference", norm)
+        self.assertIn("payment_ref", norm)
+        prev = TOOLS["statement_import_preview"][0]
+        self.assertIn("source_path", prev); self.assertIn("XLS", prev); self.assertIn("description_visibility", prev)
+        props = TOOLS["statement_import_preview"][1]["properties"]
+        self.assertIn("XLS", props["content_base64"]["description"])
+        self.assertIn("description_visibility", TOOLS["propose_statement_import"][0])
+
+
 class HeaderResolutionTests(Base):
     def test_replica_of_odoo_header_matching(self):
         fields = seed_statement_tables()["_fields"]["account.bank.statement.line"]
