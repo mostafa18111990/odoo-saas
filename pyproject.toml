@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "odoo-accountant"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI accounting employee for Odoo 19 with an auditable approval gate"
 requires-python = ">=3.10"
 dependencies = []

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "odoo-accountant": {
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/run_odoo_accountant_mcp.py"
+      ],
+      "env": {
+        "ODOO_URL": "${ODOO_URL}",
+        "ODOO_DB": "${ODOO_DB}",
+        "ODOO_LOGIN": "${ODOO_LOGIN}",
+        "ODOO_API_KEY": "${ODOO_API_KEY:-}"
+      }
+    }
+  }
+}

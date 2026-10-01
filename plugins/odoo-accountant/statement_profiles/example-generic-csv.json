@@ -1,0 +1,23 @@
+{
+  "bank": "EXAMPLE (not a real bank — copy and adapt, never use as-is)",
+  "columns": {
+    "balance": "Balance",
+    "date": "Date",
+    "payment_ref": ["Description", "Reference"],
+    "amount": "Amount"
+  },
+  "date_format": "%d/%m/%Y",
+  "decimal_separator": ".",
+  "default_currency": "SAR",
+  "delimiter": null,
+  "drcr_suffix": false,
+  "encoding": null,
+  "format": "csv",
+  "header_row": 1,
+  "invert_amount": false,
+  "name": "example-generic-csv",
+  "notes": "Amount positive = money in, negative = money out. Verify sign convention per bank before saving a real profile.",
+  "sheet": null,
+  "skip_footer_rows": 0,
+  "thousands_separator": ","
+}

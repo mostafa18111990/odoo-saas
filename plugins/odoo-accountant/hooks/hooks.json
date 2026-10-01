@@ -1,0 +1,16 @@
+{
+  "description": "Installs the pinned runtime requirements (xlrd==2.0.1 for legacy .xls) when missing; never fails the session.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/ensure_runtime.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

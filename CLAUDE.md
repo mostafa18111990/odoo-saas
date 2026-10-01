@@ -31,5 +31,8 @@
 - مرفقات Claude تُمرَّر بـ `source_path` (مسموح: `~/.claude/uploads` و`inputs/` و`outputs/statements`). كود الموافقة: `python3 scripts/odoo_accountant_cli.py show-code <id>`.
 - بعد تحديث الكود أعد الاتصال بخادم MCP (`/mcp`) وإلا يبقى يخدم المخططات القديمة.
 
+## الحزمة كـ plugin
+- `plugins/odoo-accountant/` **مولَّدة** من هذا المصدر بـ `python3 scripts/build_plugin.py` (لا تُعدَّل يدويًا؛ `--check` وtest يمنعان الانحراف) وسوقها `.claude-plugin/marketplace.json`. بعد أي تعديل على الكود/skill/agent أعد توليدها وارفع `__version__`. الدليل: `docs/PLUGIN.md`.
+
 ## الحالة
 أدوات MCP: 14 (6 تقارير + تطبيع كشف + معاينة استيراد + اقتراح استيراد + 4 للموافقات والتنفيذ والقائمة). OFX/QFX/CAMT.053 مخطَّطة وغير مدعومة. Telegram: عقد فقط (`channels/telegram_stub.py`) بلا اتصال فعلي. عملية `reconcile_statement_line` وباقي الكتابات لم تُختبر على Odoo حي (لا كتابة حية أثناء البناء).

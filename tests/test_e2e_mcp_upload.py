@@ -19,6 +19,7 @@ import unittest
 from pathlib import Path
 
 from odoo_accountant.statements import readers
+from tests.e2e_support import McpProcess
 from tests.mock_odoo_http import MockOdoo
 from tests.fakes import seed_statement_tables
 from tests.statement_fixtures import b64
@@ -28,36 +29,6 @@ FIXTURE = ROOT / "tests" / "fixtures" / "synthetic_bank_export.xls"
 TARGET = {"company_id": 1, "journal_id": 14, "bank_account_id": 9, "currency": "SAR"}
 needs_xlrd = unittest.skipUnless(readers.xls_available(), 'needs "xlrd==2.0.1"')
 FULL_1 = "حوالة محلية واردة ACME SENDER CO المرسل من مصرف تجريبي مبلغ التحويل 7,452.00 ريال سعودي مرجع العملية SYN000001"
-
-
-class McpProcess:
-    """Speaks newline-delimited JSON-RPC to the launcher, like Claude Code does over stdio."""
-
-    def __init__(self, env: dict):
-        self.p = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "run_odoo_accountant_mcp.py")], cwd=str(ROOT), env=env,
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
-        self.q: queue.Queue = queue.Queue()
-        threading.Thread(target=lambda: [self.q.put(l) for l in self.p.stdout], daemon=True).start()
-        self.n = 0
-
-    def rpc(self, method, params=None, timeout=30):
-        self.n += 1
-        self.p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": self.n, "method": method, "params": params or {}}) + "\n")
-        self.p.stdin.flush()
-        msg = json.loads(self.q.get(timeout=timeout))
-        assert msg["id"] == self.n, msg
-        return msg
-
-    def call(self, tool, **args):
-        res = self.rpc("tools/call", {"name": tool, "arguments": args})["result"]
-        return json.loads(res["content"][0]["text"]) | {"_is_error": res["isError"]}
-
-    def close(self):
-        self.p.stdin.close()
-        try:
-            self.p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            self.p.kill()
 
 
 class E2EBase(unittest.TestCase):
@@ -86,10 +57,10 @@ class E2EBase(unittest.TestCase):
 
     def human_code(self, approval_id: str, hint: str) -> str:
         """The human gets the code with the exact command the tool tells them to run (fresh shell, no PYTHONPATH)."""
-        m = re.search(r"(python3 scripts/odoo_accountant_cli\.py show-code apr_\w+)", hint)
+        m = re.search(r"(python3 \S*odoo_accountant_cli\.py show-code apr_\w+)", hint)
         self.assertIsNotNone(m, f"hint must be a runnable command: {hint!r}")
         cmd = m.group(1).split()
-        out = subprocess.run([sys.executable] + cmd[1:], cwd=str(ROOT), env=self.env, capture_output=True, text=True, timeout=30)
+        out = subprocess.run([sys.executable] + cmd[1:], cwd="/", env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(out.returncode, 0, out.stderr)
         code = out.stdout.strip()
         self.assertRegex(code, r"^[A-Z2-9]{8}$")

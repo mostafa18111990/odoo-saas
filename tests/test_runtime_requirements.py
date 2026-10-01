@@ -83,8 +83,8 @@ class LauncherAndHintTests(unittest.TestCase):
     def test_approval_code_hint_is_a_command_that_exists(self):
         hint = LocalChannel().deliver_approval_code(ChannelContext(), "apr_abc123", "CODE1234")
         self.assertNotIn("CODE1234", hint)
-        m = re.search(r"python3 (scripts/odoo_accountant_cli\.py) show-code apr_abc123", hint)
-        self.assertTrue(m, hint); self.assertTrue((ROOT / m.group(1)).exists())
+        m = re.search(r"python3 (\S+odoo_accountant_cli\.py) show-code apr_abc123", hint)
+        self.assertTrue(m, hint); self.assertTrue(Path(m.group(1)).is_absolute()); self.assertTrue(Path(m.group(1)).exists())
 
 
 class SurfaceConsistencyTests(unittest.TestCase):

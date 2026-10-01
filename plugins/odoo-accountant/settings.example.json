@@ -1,0 +1,28 @@
+{
+  "_comment": "Plugins cannot ship permission rules. Merge this into ~/.claude/settings.json (or the project's .claude/settings.json).",
+  "permissions": {
+    "allow": [
+      "mcp__plugin_odoo-accountant_odoo-accountant__accounting_snapshot",
+      "mcp__plugin_odoo-accountant_odoo-accountant__overdue_followup",
+      "mcp__plugin_odoo-accountant_odoo-accountant__bank_match_suggest",
+      "mcp__plugin_odoo-accountant_odoo-accountant__partner_data_quality",
+      "mcp__plugin_odoo-accountant_odoo-accountant__vendor_bill_review",
+      "mcp__plugin_odoo-accountant_odoo-accountant__period_close_check",
+      "mcp__plugin_odoo-accountant_odoo-accountant__normalize_statement_file",
+      "mcp__plugin_odoo-accountant_odoo-accountant__statement_import_preview",
+      "mcp__plugin_odoo-accountant_odoo-accountant__propose_statement_import",
+      "mcp__plugin_odoo-accountant_odoo-accountant__propose_action",
+      "mcp__plugin_odoo-accountant_odoo-accountant__list_pending_approvals"
+    ],
+    "ask": [
+      "mcp__plugin_odoo-accountant_odoo-accountant__approve_action",
+      "mcp__plugin_odoo-accountant_odoo-accountant__reject_action",
+      "mcp__plugin_odoo-accountant_odoo-accountant__execute_approved_action"
+    ],
+    "deny": [
+      "Read(~/.odoo-accountant/**)",
+      "Edit(~/.odoo-accountant/**)",
+      "Write(~/.odoo-accountant/**)"
+    ]
+  }
+}

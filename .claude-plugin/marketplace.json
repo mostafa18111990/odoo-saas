@@ -1,0 +1,18 @@
+{
+  "name": "odoo-saas",
+  "owner": {
+    "name": "mostafa18111990"
+  },
+  "metadata": {
+    "description": "Odoo accounting employee plugins"
+  },
+  "plugins": [
+    {
+      "name": "odoo-accountant",
+      "source": "./plugins/odoo-accountant",
+      "description": "موظف محاسب آلي لـ Odoo 19: تقارير ذمم وتحصيل وإقفال، وتطبيع واستيراد كشوف البنك (CSV/XLSX/XLS) بمعاينة وبوابة موافقة قابلة للتدقيق.",
+      "category": "finance",
+      "keywords": ["odoo", "accounting", "bank-statement", "arabic"]
+    }
+  ]
+}

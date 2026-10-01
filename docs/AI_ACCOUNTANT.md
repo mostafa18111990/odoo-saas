@@ -49,6 +49,8 @@
 - **CLI:** `statement-normalize` و`statement-preview` و`statement-propose` و`profile-save` و`profile-list`.
 - مرجع مفصل: `.claude/skills/odoo-accountant/references/statement-import.md`.
 
+> **للتثبيت في مشاريع أخرى:** الموظف متاح كـ plugin (`docs/PLUGIN.md`).
+
 ## شروط التشغيل (مُتحقَّق منها)
 | الشرط | كيف يُضمن | فحص |
 |---|---|---|
